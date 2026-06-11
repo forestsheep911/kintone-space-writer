@@ -13,7 +13,9 @@ Do not update Space body content, thread body content, or create threads unless 
 
 ## Environment
 
-Load kintone settings from the user's article/workspace `.env`.
+Load kintone settings from the user's article/workspace env file.
+
+Use `.env` for a single destination. Use `.env.test` and `.env.prod` when the workspace has separate test and official destinations.
 
 Required:
 
@@ -31,6 +33,22 @@ Optional:
 Never store real credentials in plugin files, skill references, examples beyond placeholders, or shared plugin knowledge.
 
 Workspace writing preferences may live in `kintone-space-writer.md`, but publishing credentials and target IDs must stay in `.env`.
+
+## Natural-Language Publish Flow
+
+When the user asks to publish and both `.env.test` and `.env.prod` are available, guide them conversationally:
+
+1. Send to the test environment first unless the user explicitly says to skip test.
+2. After the test comment is created, report the comment ID and ask the user to inspect formatting/content in kintone Web UI.
+3. If the user says it looks correct, send the same draft and attachments to production.
+4. If the user says it is wrong, help revise the draft, then resend to test. The user deletes wrong test comments manually in kintone if needed.
+
+Use publish records to keep the mapping:
+
+- test records: `metadata/publish-log/test/`
+- production records: `metadata/publish-log/prod/`
+
+Test and production posts have separate kintone comment IDs.
 
 ## Comment Images
 
@@ -53,25 +71,28 @@ Use `../../scripts/kintone_space_comment.py` for dry runs, file upload, and comm
 Recommended preflight:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py preflight --env .env
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py --env .env.test preflight
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py --env .env.prod preflight
 ```
 
 Dry-run a comment payload:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py post-comment --env .env --text-file article.txt --image cover.png --dry-run
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py --env .env.test post-comment --text-file article.txt --image cover.png --dry-run
 ```
 
 Post after review:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py post-comment --env .env --text-file article.txt --image cover.png
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py --env .env.test post-comment --text-file article.txt --image cover.png
 ```
 
 For production posts, write a local publish record:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py post-comment --env .env --text-file drafts/article-v001.md --image assets/cover.png --archive-dir metadata/publish-log --draft-id article-v001 --title "Article title"
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py --env .env.test post-comment --text-file drafts/article-v001.md --image assets/cover.png --archive-dir metadata/publish-log/test --draft-id article-v001 --title "Article title"
+
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py --env .env.prod post-comment --text-file drafts/article-v001.md --image assets/cover.png --archive-dir metadata/publish-log/prod --draft-id article-v001 --title "Article title"
 ```
 
 If the user deletes a wrong comment manually in kintone, mark the local record:

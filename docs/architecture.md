@@ -87,6 +87,20 @@ If a future version requires true text-image interleaving, it should be treated 
 
 kintone credentials and target IDs belong in the article workspace `.env`, not inside the plugin repository or shared plugin knowledge.
 
+For workflows with separate test and official destinations, use two workspace-local environment files:
+
+```text
+.env.test
+.env.prod
+```
+
+The script already accepts any env file through `--env`, so no special code path is needed:
+
+```powershell
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py --env .env.test preflight
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py --env .env.prod preflight
+```
+
 Initial keys:
 
 ```dotenv
@@ -103,6 +117,22 @@ KINTONE_BASIC_AUTH_PASSWORD=
 
 `KINTONE_GUEST_SPACE_ID` is optional and should be empty for normal spaces.
 `KINTONE_BASIC_AUTH_USERNAME` and `KINTONE_BASIC_AUTH_PASSWORD` are optional and should be set only when the kintone environment also requires cybozu Basic Auth.
+
+## Test Then Production Flow
+
+When both `.env.test` and `.env.prod` exist, Codex should use a natural-language confirmation flow instead of making the user remember command flags.
+
+Default publishing sequence:
+
+1. Ask whether to send to the test environment first.
+2. Post to `.env.test` and write a publish record under `metadata/publish-log/test/`.
+3. Ask the user to inspect the test comment in kintone Web UI.
+4. If the user says the format/content is correct, post the same draft and attachments to `.env.prod`.
+5. Write the production publish record under `metadata/publish-log/prod/`.
+
+The test and production posts are separate kintone comments with separate comment IDs. The local publish records connect both comments back to the same draft ID and text hash.
+
+If the test post is wrong, the user can manually delete it in the Web UI, revise the local draft, and resend to test. Do not post to production until the user confirms the tested rendering is acceptable.
 
 ## Workspace Profile
 
@@ -152,13 +182,17 @@ Recommended shape:
 
 ```text
 kintone-space-writer.md
-.env
+.env.test
+.env.prod
 drafts/
   article-v001.md
   article-v002.md
 metadata/
   publish-log/
-    <timestamp>-<draft-id>-comment-<comment-id>.json
+    test/
+      <timestamp>-<draft-id>-comment-<comment-id>.json
+    prod/
+      <timestamp>-<draft-id>-comment-<comment-id>.json
 assets/
   generated/
 ```
