@@ -1,15 +1,15 @@
 {
-  "name": "blog-writer-kintone-space-dev",
+  "name": "kintone-space-writer-dev",
   "interface": {
-    "displayName": "Blog Writer Kintone Space (dev, local source)",
+    "displayName": "Kintone Space Writer (dev, local source)",
     "description": "Development-only marketplace for testing the local plugin source in this repo. End users should install from the built by 2water marketplace after release."
   },
   "plugins": [
     {
-      "name": "blog-writer-kintone-space",
+      "name": "kintone-space-writer",
       "source": {
         "source": "local",
-        "path": "./plugins/blog-writer-kintone-space"
+        "path": "./plugins/kintone-space-writer"
       },
       "policy": {
         "installation": "AVAILABLE",

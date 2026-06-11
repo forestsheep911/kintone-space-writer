@@ -1,14 +1,14 @@
-# blog-writer-kintone-space
+# kintone-space-writer
 
 Codex plugin project for drafting and posting kintone Space thread-comment articles.
 
 ## Layout
 
 ```text
-blog-writer-kintone-space/
+kintone-space-writer/
   .agents/plugins/marketplace.json
   docs/
-  plugins/blog-writer-kintone-space/
+  plugins/kintone-space-writer/
     .codex-plugin/plugin.json
     .env.example
     assets/
@@ -19,7 +19,7 @@ blog-writer-kintone-space/
 The installable plugin source is:
 
 ```text
-plugins/blog-writer-kintone-space/
+plugins/kintone-space-writer/
 ```
 
 This matches the `git-subdir` publishing style used by the 2water Codex plugin marketplace.
@@ -60,12 +60,12 @@ The intended public marketplace is:
 forestsheep911/codex-plugin-marketplace-2water
 ```
 
-The eventual entry should use a git-subdir source pointing at `plugins/blog-writer-kintone-space` and a version tag.
+The eventual entry should use a git-subdir source pointing at `plugins/kintone-space-writer` and a version tag.
 
 ## Development
 
 Validate the plugin:
 
 ```powershell
-python C:/Users/bxu/.GZ9EE915VU4opI0l1i0M6123/skills/.system/plugin-creator/scripts/validate_plugin.py C:/Users/bxu/dev/rdpj/blog-writer-kintone-space/plugins/blog-writer-kintone-space
+python C:/Users/bxu/.GZ9EE915VU4opI0l1i0M6123/skills/.system/plugin-creator/scripts/validate_plugin.py ./plugins/kintone-space-writer
 ```

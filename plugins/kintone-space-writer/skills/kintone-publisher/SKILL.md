@@ -43,17 +43,17 @@ Use `../../scripts/kintone_space_comment.py` for dry runs, file upload, and comm
 Recommended preflight:
 
 ```powershell
-python plugins/blog-writer-kintone-space/scripts/kintone_space_comment.py preflight --env .env
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py preflight --env .env
 ```
 
 Dry-run a comment payload:
 
 ```powershell
-python plugins/blog-writer-kintone-space/scripts/kintone_space_comment.py post-comment --env .env --text-file article.txt --image cover.png --dry-run
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py post-comment --env .env --text-file article.txt --image cover.png --dry-run
 ```
 
 Post after review:
 
 ```powershell
-python plugins/blog-writer-kintone-space/scripts/kintone_space_comment.py post-comment --env .env --text-file article.txt --image cover.png
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py post-comment --env .env --text-file article.txt --image cover.png
 ```
