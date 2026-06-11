@@ -42,6 +42,8 @@ Treat `comment.text` as plain text. Existing smoke tests showed that bare URLs m
 
 Use character-based layout: full-width brackets for titles, blank lines, numbered sections, `・` bullets, and bare URLs.
 
+Emoji sent through `comment.text` rendered correctly in smoke tests and may be used as lightweight visual markers. Keep important meaning in text, not emoji alone.
+
 ## Script
 
 Use `../../scripts/kintone_space_comment.py` for dry runs, file upload, and comment posting.

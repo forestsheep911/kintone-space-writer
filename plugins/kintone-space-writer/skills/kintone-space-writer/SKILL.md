@@ -59,6 +59,7 @@ The initial publishing route is kintone Space thread comment only.
 - Do not optimize the article as a WeChat/公众号 post unless the user explicitly asks for a WeChat derivative.
 - For kintone Space comment output, assume plain text only. Use visible characters, spacing, numbering, and bullets for structure.
 - Use bare URLs for references. Do not rely on Markdown links, Markdown bold, highlight markers, or heading syntax.
+- Emoji can be used sparingly as plain-text markers. Smoke tests showed common emoji render in kintone Web UI, but do not make emoji carry essential meaning.
 
 ## Plain Text Layout Pattern
 
