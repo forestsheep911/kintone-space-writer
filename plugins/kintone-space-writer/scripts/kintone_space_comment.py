@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import mimetypes
 import os
@@ -17,6 +18,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -157,6 +159,92 @@ def upload_file(config: dict[str, str], file_path: Path) -> str:
         raise RuntimeError(f"kintone upload error {exc.code}: {error_body}") from exc
 
 
+def utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def text_sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def thread_url(config: dict[str, str]) -> str:
+    if config.get("guest_space_id"):
+        return (
+            f"{config['base_url']}/k/guest/{urllib.parse.quote(config['guest_space_id'])}"
+            f"/#/space/{urllib.parse.quote(config['space_id'])}"
+            f"/thread/{urllib.parse.quote(config['thread_id'])}"
+        )
+    return (
+        f"{config['base_url']}/k/#/space/{urllib.parse.quote(config['space_id'])}"
+        f"/thread/{urllib.parse.quote(config['thread_id'])}"
+    )
+
+
+def write_publish_record(
+    archive_dir: Path,
+    *,
+    config: dict[str, str],
+    result: dict[str, Any],
+    payload: dict[str, Any],
+    draft_id: str,
+    title: str,
+    text: str,
+    draft_file: Path | None,
+    attached_files: list[dict[str, str]],
+) -> Path:
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    comment_id = str(result.get("id", "unknown"))
+    timestamp = utc_now()
+    safe_timestamp = timestamp.replace(":", "").replace("+", "Z")
+    safe_draft_id = "".join(
+        char if char.isalnum() or char in ("-", "_") else "-" for char in draft_id
+    ).strip("-") or "draft"
+    record_path = archive_dir / f"{safe_timestamp}-{safe_draft_id}-comment-{comment_id}.json"
+    record = {
+        "schema": "kintone-space-writer.publish-record.v1",
+        "status": "active",
+        "createdAt": timestamp,
+        "updatedAt": timestamp,
+        "draft": {
+            "id": draft_id,
+            "title": title,
+            "file": str(draft_file) if draft_file else None,
+            "textSha256": text_sha256(text),
+            "textLength": len(text),
+        },
+        "kintone": {
+            "baseUrl": config["base_url"],
+            "spaceId": config["space_id"],
+            "threadId": config["thread_id"],
+            "guestSpaceId": config["guest_space_id"] or None,
+            "threadUrl": thread_url(config),
+            "commentId": comment_id,
+        },
+        "attachments": attached_files,
+        "payload": payload,
+        "result": result,
+        "events": [
+            {
+                "at": timestamp,
+                "type": "posted",
+                "note": "Created by kintone-space-writer.",
+            }
+        ],
+    }
+    record_path.write_text(json.dumps(record, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return record_path
+
+
+def mark_record(record_path: Path, status: str, note: str) -> None:
+    payload = json.loads(record_path.read_text(encoding="utf-8"))
+    now = utc_now()
+    payload["status"] = status
+    payload["updatedAt"] = now
+    events = payload.setdefault("events", [])
+    events.append({"at": now, "type": "status-changed", "status": status, "note": note})
+    record_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
 def parse_width(value: str) -> int:
     try:
         width = int(value)
@@ -227,11 +315,18 @@ def command_post_comment(args: argparse.Namespace) -> int:
 
     text = read_comment_text(args)
     file_keys = list(args.file_key or [])
+    attached_files = [
+        {"source": "existing-file-key", "path": "", "fileKey": key} for key in file_keys
+    ]
     if args.dry_run:
         file_keys.extend(f"DRY_RUN_FILE_KEY:{path.name}" for path in images)
     else:
         for image_path in images:
-            file_keys.append(upload_file(config, image_path))
+            file_key = upload_file(config, image_path)
+            file_keys.append(file_key)
+            attached_files.append(
+                {"source": "upload", "path": str(image_path), "fileKey": file_key}
+            )
 
     payload = build_comment_payload(config, text, file_keys, width)
     if args.dry_run:
@@ -239,7 +334,27 @@ def command_post_comment(args: argparse.Namespace) -> int:
         return 0
 
     result = request_json(config, "POST", "space/thread/comment.json", payload)
-    print(json.dumps(result, indent=2, ensure_ascii=False))
+    output: dict[str, Any] = {"result": result}
+    if args.archive_dir:
+        record_path = write_publish_record(
+            args.archive_dir,
+            config=config,
+            result=result,
+            payload=payload,
+            draft_id=args.draft_id,
+            title=args.title,
+            text=text,
+            draft_file=args.text_file,
+            attached_files=attached_files,
+        )
+        output["publishRecord"] = str(record_path)
+    print(json.dumps(output, indent=2, ensure_ascii=False))
+    return 0
+
+
+def command_mark_record(args: argparse.Namespace) -> int:
+    mark_record(args.record, args.status, args.note or "")
+    print(json.dumps({"record": str(args.record), "status": args.status}, indent=2))
     return 0
 
 
@@ -266,8 +381,21 @@ def build_parser() -> argparse.ArgumentParser:
     post.add_argument("--image", type=Path, action="append", help="Image/file to upload and attach")
     post.add_argument("--file-key", action="append", help="Existing uploaded fileKey to attach")
     post.add_argument("--width", help="Image display width, 100 to 750")
+    post.add_argument("--archive-dir", type=Path, help="Directory for publish record JSON files")
+    post.add_argument("--draft-id", default="draft", help="Stable local draft/version ID")
+    post.add_argument("--title", default="", help="Human-readable article title")
     post.add_argument("--dry-run", action="store_true", help="Print payload without API mutations")
     post.set_defaults(func=command_post_comment)
+
+    mark = subparsers.add_parser("mark-record", help="Mark a local publish record status")
+    mark.add_argument("--record", type=Path, required=True)
+    mark.add_argument(
+        "--status",
+        required=True,
+        choices=["active", "deleted-manual", "superseded", "failed", "void"],
+    )
+    mark.add_argument("--note", help="Reason or operator note")
+    mark.set_defaults(func=command_mark_record)
 
     return parser
 

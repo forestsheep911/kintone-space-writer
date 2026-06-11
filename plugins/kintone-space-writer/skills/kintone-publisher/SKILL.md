@@ -57,3 +57,17 @@ Post after review:
 ```powershell
 python plugins/kintone-space-writer/scripts/kintone_space_comment.py post-comment --env .env --text-file article.txt --image cover.png
 ```
+
+For production posts, write a local publish record:
+
+```powershell
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py post-comment --env .env --text-file drafts/article-v001.md --image assets/cover.png --archive-dir metadata/publish-log --draft-id article-v001 --title "Article title"
+```
+
+If the user deletes a wrong comment manually in kintone, mark the local record:
+
+```powershell
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py mark-record --record metadata/publish-log/<record>.json --status deleted-manual --note "Deleted in kintone Web UI after wrong target/text."
+```
+
+Then create a new draft version and post again. Do not overwrite the old publish record.

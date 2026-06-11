@@ -73,3 +73,47 @@ KINTONE_BASIC_AUTH_PASSWORD=
 For non-technical users, kintone itself may become the asset store in a later version. A dedicated kintone App can hold article metadata, source files, generated images, prompt records, and publish state. This is less clean than Git plus object storage, but it is easier for users without GitHub or Blob storage.
 
 The current v0.1 implementation keeps this open and only supports direct comment attachments.
+
+## Local Draft And Publish Records
+
+Each article workspace should keep local drafts and publish records separate. The publish log is a local audit trail, not a synchronization layer.
+
+Recommended shape:
+
+```text
+drafts/
+  article-v001.md
+  article-v002.md
+metadata/
+  publish-log/
+    <timestamp>-<draft-id>-comment-<comment-id>.json
+assets/
+  generated/
+```
+
+Every successful post should write one publish record. The record links:
+
+- local draft ID
+- local draft file path
+- text SHA-256
+- kintone base URL
+- Space ID
+- Thread ID
+- Thread URL
+- returned comment ID
+- attached local files and file keys
+- exact comment payload
+- current status
+- event history
+
+Do not overwrite a publish record when a comment was wrong. Keep the old record as history and mark it if useful.
+
+Wrong-post recovery:
+
+1. User deletes the wrong Space comment in the kintone Web UI.
+2. Optionally mark the local publish record as `deleted-manual` with a note.
+3. Save the rewritten article as a new draft version.
+4. Send again. kintone returns a new comment ID, so the resend creates a new publish record.
+5. If the new post replaces a previous visible post, optionally mark the old record `superseded`.
+
+As of v0.1 planning, the public kintone REST API route used here supports adding Space thread comments but does not provide a matching Space thread comment deletion endpoint. Deletion should therefore be treated as a manual Web UI action unless a future verified API route is added.
