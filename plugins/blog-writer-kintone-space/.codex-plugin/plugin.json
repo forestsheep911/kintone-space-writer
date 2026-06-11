@@ -1,0 +1,23 @@
+{
+  "name": "blog-writer-kintone-space",
+  "version": "0.1.0",
+  "description": "Draft and refine articles intended for kintone Space.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Blog Writer Kintone Space",
+    "shortDescription": "Write kintone Space articles with Codex.",
+    "longDescription": "Provides writing workflow guidance for drafting, revising, and preparing articles for kintone Space. Reference material can be added as the project evolves.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": [
+      "writing",
+      "editing",
+      "content-preparation",
+      "publishing"
+    ],
+    "defaultPrompt": "Help me draft a kintone Space article."
+  }
+}
