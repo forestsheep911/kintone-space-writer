@@ -61,9 +61,12 @@ KINTONE_SPACE_ID=
 KINTONE_THREAD_ID=
 KINTONE_GUEST_SPACE_ID=
 KINTONE_IMAGE_WIDTH=600
+KINTONE_BASIC_AUTH_USERNAME=
+KINTONE_BASIC_AUTH_PASSWORD=
 ```
 
 `KINTONE_GUEST_SPACE_ID` is optional and should be empty for normal spaces.
+`KINTONE_BASIC_AUTH_USERNAME` and `KINTONE_BASIC_AUTH_PASSWORD` are optional and should be set only when the kintone environment also requires cybozu Basic Auth.
 
 ## Asset Direction
 

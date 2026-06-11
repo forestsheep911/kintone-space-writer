@@ -60,7 +60,15 @@ def build_config(env_path: Path) -> dict[str, str]:
         "thread_id": require_config(env, "KINTONE_THREAD_ID"),
         "guest_space_id": env.get("KINTONE_GUEST_SPACE_ID", "").strip(),
         "image_width": env.get("KINTONE_IMAGE_WIDTH", str(DEFAULT_IMAGE_WIDTH)).strip(),
+        "basic_auth_username": env.get("KINTONE_BASIC_AUTH_USERNAME", "").strip(),
+        "basic_auth_password": env.get("KINTONE_BASIC_AUTH_PASSWORD", "").strip(),
     }
+    has_basic_user = bool(config["basic_auth_username"])
+    has_basic_password = bool(config["basic_auth_password"])
+    if has_basic_user != has_basic_password:
+        raise ConfigError(
+            "KINTONE_BASIC_AUTH_USERNAME and KINTONE_BASIC_AUTH_PASSWORD must be set together"
+        )
     return config
 
 
@@ -75,7 +83,16 @@ def auth_headers(config: dict[str, str]) -> dict[str, str]:
     token = base64.b64encode(
         f"{config['username']}:{config['password']}".encode("utf-8")
     ).decode("ascii")
-    return {"X-Cybozu-Authorization": token}
+    headers = {"X-Cybozu-Authorization": token}
+    if config.get("basic_auth_username"):
+        basic_token = base64.b64encode(
+            (
+                f"{config['basic_auth_username']}:"
+                f"{config['basic_auth_password']}"
+            ).encode("utf-8")
+        ).decode("ascii")
+        headers["Authorization"] = f"Basic {basic_token}"
+    return headers
 
 
 def request_json(
@@ -180,6 +197,7 @@ def command_preflight(args: argparse.Namespace) -> int:
         "guestSpaceId": config["guest_space_id"] or None,
         "imageWidth": width,
         "auth": "username-password",
+        "cybozuBasicAuth": bool(config["basic_auth_username"]),
     }
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     return 0
