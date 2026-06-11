@@ -35,6 +35,40 @@ kintone composes comment content in this order:
 
 Therefore images posted through this REST API route are attachments after the text. The Web UI can support richer manual placement behavior, but this API route should not promise inline image insertion.
 
+## Comment Text Formatting
+
+`comment.text` should be treated as plain text. In Web UI smoke tests, kintone preserved line breaks and automatically linkified bare URLs, but did not apply rich-text or Markdown formatting.
+
+Do not rely on:
+
+- Markdown headings such as `# Heading`
+- Markdown bold such as `**text**`
+- Markdown links such as `[text](https://example.com)`
+- highlight markers such as `==text==`
+- horizontal rules such as `---`
+
+Use plain-character formatting instead:
+
+```text
+【Title】
+
+Summary:
+Short summary text.
+
+1. Section title
+
+Body text.
+
+Points:
+・First point
+・Second point
+
+Reference:
+https://example.com
+```
+
+Use bare URLs when links are needed, because kintone may turn them into clickable links in the Web UI.
+
 ## Image Handling
 
 Article illustrations use the kintone file upload API first. The returned `fileKey` values are then attached in `comment.files`.

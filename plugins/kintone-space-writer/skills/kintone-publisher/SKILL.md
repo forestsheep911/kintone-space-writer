@@ -36,6 +36,12 @@ For images, use the file upload API first, then attach returned file keys to `co
 
 The comment API orders content as mentions, text, then files. Do not claim that this route can place images between article paragraphs. If users need true inline placement, record it as a future non-v0.1 route.
 
+## Comment Text Formatting
+
+Treat `comment.text` as plain text. Existing smoke tests showed that bare URLs may become clickable in kintone Web UI, but Markdown-style formatting should be assumed to display literally.
+
+Use character-based layout: full-width brackets for titles, blank lines, numbered sections, `・` bullets, and bare URLs.
+
 ## Script
 
 Use `../../scripts/kintone_space_comment.py` for dry runs, file upload, and comment posting.

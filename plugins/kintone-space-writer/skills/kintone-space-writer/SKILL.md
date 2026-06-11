@@ -57,6 +57,30 @@ The initial publishing route is kintone Space thread comment only.
 - Use headings and short paragraphs for scanability.
 - Keep formatting portable until exact kintone Space constraints are known.
 - Do not optimize the article as a WeChat/公众号 post unless the user explicitly asks for a WeChat derivative.
+- For kintone Space comment output, assume plain text only. Use visible characters, spacing, numbering, and bullets for structure.
+- Use bare URLs for references. Do not rely on Markdown links, Markdown bold, highlight markers, or heading syntax.
+
+## Plain Text Layout Pattern
+
+Prefer this shape for comment-ready drafts:
+
+```text
+【Title】
+
+Summary:
+One or two lines.
+
+1. Section title
+
+Body text.
+
+Points:
+・First point
+・Second point
+
+Reference:
+https://example.com
+```
 
 ## Output Shape
 
