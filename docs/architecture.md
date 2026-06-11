@@ -104,6 +104,40 @@ KINTONE_BASIC_AUTH_PASSWORD=
 `KINTONE_GUEST_SPACE_ID` is optional and should be empty for normal spaces.
 `KINTONE_BASIC_AUTH_USERNAME` and `KINTONE_BASIC_AUTH_PASSWORD` are optional and should be set only when the kintone environment also requires cybozu Basic Auth.
 
+## Workspace Profile
+
+User-specific writing preferences should live in the article workspace, not in the shared plugin source. This lets each kintone Space or user team keep its own house style without changing the plugin.
+
+Recommended file name:
+
+```text
+kintone-space-writer.md
+```
+
+Optional fallback folder:
+
+```text
+metadata/kintone-space-writer.md
+```
+
+The profile may record:
+
+- pure-text formatting rules, such as `【...】` for main titles and `[...]` for smaller labels
+- language and tone preferences
+- reader relationship and expected formality
+- preferred/disallowed phrases
+- article templates
+- review checklist
+- publishing habits for the current Space/thread
+
+When drafting, Codex should apply rules in this priority order:
+
+1. the user's current instruction
+2. the workspace profile
+3. plugin skill defaults
+
+The workspace profile must not contain credentials. `.env` remains the only workspace-local file for kintone secrets and target IDs.
+
 ## Asset Direction
 
 For non-technical users, kintone itself may become the asset store in a later version. A dedicated kintone App can hold article metadata, source files, generated images, prompt records, and publish state. This is less clean than Git plus object storage, but it is easier for users without GitHub or Blob storage.
@@ -117,6 +151,8 @@ Each article workspace should keep local drafts and publish records separate. Th
 Recommended shape:
 
 ```text
+kintone-space-writer.md
+.env
 drafts/
   article-v001.md
   article-v002.md

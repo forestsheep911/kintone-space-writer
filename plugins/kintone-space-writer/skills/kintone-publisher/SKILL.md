@@ -30,6 +30,8 @@ Optional:
 
 Never store real credentials in plugin files, skill references, examples beyond placeholders, or shared plugin knowledge.
 
+Workspace writing preferences may live in `kintone-space-writer.md`, but publishing credentials and target IDs must stay in `.env`.
+
 ## Comment Images
 
 For images, use the file upload API first, then attach returned file keys to `comment.files`.

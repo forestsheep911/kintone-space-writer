@@ -29,6 +29,23 @@ Ask for or use any available:
 
 If the user has not provided enough detail, make a reasonable first draft from the available context and mark assumptions clearly.
 
+## Workspace Profile
+
+Before drafting or revising in a user article workspace, look for a workspace-level profile:
+
+1. `kintone-space-writer.md`
+2. `metadata/kintone-space-writer.md`
+
+Use it as reusable local memory for that workspace. It may define formatting conventions, article patterns, tone, language, words to prefer or avoid, review habits, and publishing preferences.
+
+Apply instruction priority in this order:
+
+1. the user's current request
+2. the workspace profile
+3. this skill's defaults
+
+Never put credentials in the workspace profile. kintone secrets and target IDs belong in `.env`.
+
 ## Workflow
 
 1. Identify the article goal, reader, and source material.

@@ -30,6 +30,7 @@ This matches the `git-subdir` publishing style used by the 2water Codex plugin m
 - Publish only by adding a comment to an existing Space thread.
 - Do not update Space or thread body content.
 - Use article/workspace-local `.env` for kintone credentials and target IDs.
+- Use article/workspace-local `kintone-space-writer.md` for reusable writing preferences and formatting habits.
 - Start with username/password authentication.
 - Treat article images as comment attachments.
 
