@@ -5,61 +5,61 @@ defaultTarget: test-news
 
 environments:
   test:
-    label: "测试环境"
+    label: "Test environment"
     baseUrl: "https://test-example.cybozu.com"
     username: "writer@example.com"
     passwordEnv: "KINTONE_TEST_PASSWORD"
 
     spaces:
       main:
-        label: "测试主空间"
+        label: "Main test Space"
         spaceId: "10"
 
         threads:
           news:
             alias: "test-news"
-            nickname: "测试文章帖"
+            nickname: "Test article thread"
             threadId: "12"
             imageWidth: 600
 
   env1:
-    label: "环境1"
+    label: "Environment 1"
     baseUrl: "https://env1-example.cybozu.com"
     username: "writer@example.com"
     passwordEnv: "KINTONE_ENV1_PASSWORD"
 
     spaces:
       company:
-        label: "总公司空间"
+        label: "Head office Space"
         spaceId: "20"
 
         threads:
           news:
             alias: "company-news"
-            nickname: "总公司文章帖"
+            nickname: "Head office article thread"
             threadId: "34"
             imageWidth: 600
 
           notice:
             alias: "company-notice"
-            nickname: "总公司通知帖"
+            nickname: "Head office notice thread"
             threadId: "35"
             imageWidth: 600
 
   env2:
-    label: "环境2"
+    label: "Environment 2"
     baseUrl: "https://env2-example.cybozu.com"
     username: "writer@example.com"
     passwordEnv: "KINTONE_ENV2_PASSWORD"
 
     spaces:
       branch:
-        label: "子公司空间"
+        label: "Branch office Space"
         spaceId: "30"
 
         threads:
           news:
             alias: "branch-news"
-            nickname: "子公司文章帖"
+            nickname: "Branch office article thread"
             threadId: "56"
             imageWidth: 600

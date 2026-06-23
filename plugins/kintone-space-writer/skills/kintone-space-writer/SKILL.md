@@ -13,7 +13,7 @@ Help Codex produce articles intended for kintone Space. This skill is intentiona
 
 BiLore may be used as a reference for production workflow, asset tracking, source discipline, manifests, and publishing handoff design.
 
-Do not import BiLore's WeChat/public-account writing style rules, public-account formatting habits,运营知识, or anti-AI-voice prose recipes. kintone Space articles should develop their own concise, practical style for the intended Space audience.
+Do not import BiLore's WeChat/public-account writing style rules, public-account formatting habits, operational publishing knowledge, or anti-AI-voice prose recipes. kintone Space articles should develop their own concise, practical style for the intended Space audience.
 
 ## Inputs To Prefer
 
@@ -71,10 +71,10 @@ The initial publishing route is kintone Space thread comment only.
 - Do not invent product behavior, UI labels, API details, dates, metrics, or customer claims.
 - Keep claims traceable to user-provided sources or explicitly label them as assumptions.
 - Prefer concrete steps, examples, and operational context over broad marketing language.
-- Before calling a draft publish-ready, apply the `anti-ai-tone` review: reduce generic openers, repeated mirrored contrasts, "真正..." staged-insight phrases, slogan verbs such as "稳住/撑住/立住", empty emphasis, and business fog while preserving useful content.
+- Before calling a draft publish-ready, apply the `anti-ai-tone` review: reduce generic openers, repeated mirrored contrasts, staged-insight phrases, slogan verbs, empty emphasis, and business fog while preserving useful content.
 - Use headings and short paragraphs for scanability.
 - Keep formatting portable until exact kintone Space constraints are known.
-- Do not optimize the article as a WeChat/公众号 post unless the user explicitly asks for a WeChat derivative.
+- Do not optimize the article as a WeChat Official Account post unless the user explicitly asks for a WeChat derivative.
 - For kintone Space comment output, assume plain text only. Use visible characters, spacing, numbering, and bullets for structure.
 - Use bare URLs for references. Do not rely on Markdown links, Markdown bold, highlight markers, or heading syntax.
 - Emoji can be used sparingly as plain-text markers. Smoke tests showed common emoji render in kintone Web UI, but do not make emoji carry essential meaning.

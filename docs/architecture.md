@@ -70,8 +70,7 @@ Emoji smoke test result: common emoji, workflow symbols, skin-tone variants, hea
 Before a draft is called publish-ready, Codex should apply the `anti-ai-tone` skill. The gate is intentionally editorial, not mechanical:
 
 - remove generic openers and empty emphasis
-- reduce repeated mirrored contrast frames such as `不是 A，而是 B` and `最好不要只 A，而是 B`
-- reduce staged-insight phrases such as `真正值得关注的是` and slogan verbs such as `稳住、撑住、立住`
+- reduce repeated mirrored contrast frames, staged-insight phrases, and slogan verbs
 - replace business fog with plain wording
 - preserve useful facts, reader context, and kintone plain-text structure
 
@@ -100,38 +99,38 @@ defaultTarget: test-news
 
 environments:
   test:
-    label: "测试环境"
+    label: "Test environment"
     baseUrl: "https://test-example.cybozu.com"
     username: "writer@example.com"
     passwordEnv: "KINTONE_TEST_PASSWORD"
 
     spaces:
       main:
-        label: "测试主空间"
+        label: "Main test Space"
         spaceId: "10"
 
         threads:
           news:
             alias: "test-news"
-            nickname: "测试文章帖"
+            nickname: "Test article thread"
             threadId: "12"
             imageWidth: 600
 
   env1:
-    label: "环境1"
+    label: "Environment 1"
     baseUrl: "https://env1-example.cybozu.com"
     username: "writer@example.com"
     passwordEnv: "KINTONE_ENV1_PASSWORD"
 
     spaces:
       company:
-        label: "总公司空间"
+        label: "Head office Space"
         spaceId: "20"
 
         threads:
           news:
             alias: "company-news"
-            nickname: "总公司文章帖"
+            nickname: "Head office article thread"
             threadId: "34"
             imageWidth: 600
 ```
