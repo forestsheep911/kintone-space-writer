@@ -52,7 +52,7 @@ Never put credentials in the workspace profile. kintone secrets and target IDs b
 2. Extract claims, examples, and required facts from the supplied references.
 3. Create a concise outline before drafting when the topic is complex.
 4. Draft in a practical, reader-focused style suitable for an internal or community knowledge space.
-5. Revise for clarity, source faithfulness, and actionability.
+5. Revise for clarity, source faithfulness, actionability, and anti-AI-tone quality.
 6. Prepare a final article body plus a short handoff note listing assumptions, missing references, and suggested images or attachments.
 
 ## Publishing Constraints
@@ -71,6 +71,7 @@ The initial publishing route is kintone Space thread comment only.
 - Do not invent product behavior, UI labels, API details, dates, metrics, or customer claims.
 - Keep claims traceable to user-provided sources or explicitly label them as assumptions.
 - Prefer concrete steps, examples, and operational context over broad marketing language.
+- Before calling a draft publish-ready, apply the `anti-ai-tone` review: reduce generic openers, repeated mirrored contrasts, "真正..." staged-insight phrases, slogan verbs such as "稳住/撑住/立住", empty emphasis, and business fog while preserving useful content.
 - Use headings and short paragraphs for scanability.
 - Keep formatting portable until exact kintone Space constraints are known.
 - Do not optimize the article as a WeChat/公众号 post unless the user explicitly asks for a WeChat derivative.

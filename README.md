@@ -48,6 +48,8 @@ Use BiLore as a reference for production structure only:
 
 Do not copy BiLore's WeChat-specific writing style, public-account formatting habits, article-operation rules, or anti-AI-voice prose techniques. kintone Space articles need their own house style for space/community communication.
 
+Use `hardikpandya/stop-slop` as a reference for anti-AI-tone review only. The local `anti-ai-tone` skill adapts its MIT-licensed ideas for Chinese kintone Space writing instead of importing the English rules verbatim.
+
 Use Deckit as a reference for:
 
 - plugin repository layout

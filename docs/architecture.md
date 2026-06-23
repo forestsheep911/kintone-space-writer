@@ -65,6 +65,18 @@ Use bare URLs when links are needed, because kintone may turn them into clickabl
 
 Emoji smoke test result: common emoji, workflow symbols, skin-tone variants, heart, and flag emoji rendered correctly in the kintone Web UI when sent through `comment.text`. Bare URLs were rendered as blue clickable links. Emoji can be used sparingly as plain-text visual markers, but do not make them carry essential meaning because client/font differences may still affect multi-codepoint emoji.
 
+## Writing Quality Gate
+
+Before a draft is called publish-ready, Codex should apply the `anti-ai-tone` skill. The gate is intentionally editorial, not mechanical:
+
+- remove generic openers and empty emphasis
+- reduce repeated mirrored contrast frames such as `不是 A，而是 B` and `最好不要只 A，而是 B`
+- reduce staged-insight phrases such as `真正值得关注的是` and slogan verbs such as `稳住、撑住、立住`
+- replace business fog with plain wording
+- preserve useful facts, reader context, and kintone plain-text structure
+
+The `anti-ai-tone` skill adapts ideas from `hardikpandya/stop-slop` under the MIT License for this plugin's Chinese kintone Space use case.
+
 ## Image Handling
 
 Article illustrations use the kintone file upload API first. The returned `fileKey` values are then attached in `comment.files`.
