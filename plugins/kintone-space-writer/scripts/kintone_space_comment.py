@@ -22,6 +22,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+try:
+    import yaml
+except ImportError:  # pragma: no cover - depends on local Python environment
+    yaml = None
+
 
 MAX_COMMENT_FILES = 5
 DEFAULT_IMAGE_WIDTH = 600
@@ -32,11 +37,10 @@ REQUIRED_CONFIG_KEYS = (
     "KINTONE_SPACE_ID",
     "KINTONE_THREAD_ID",
 )
-ENV_EXAMPLE_BY_MODE = {
-    "single": ".env.example",
-    "test": ".env.test.example",
-    "prod": ".env.prod.example",
-}
+ENV_EXAMPLE_NAME = ".env.example"
+TARGETS_EXAMPLE_NAME = "kintone-targets.example.yaml"
+DEFAULT_TARGETS_PATH = Path("kintone-targets.yaml")
+TARGET_REQUIRED_FIELDS = ("baseUrl", "username", "spaceId", "threadId")
 
 
 class ConfigError(RuntimeError):
@@ -47,16 +51,16 @@ def plugin_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def env_example_path(mode: str = "single") -> Path:
-    return plugin_root() / ENV_EXAMPLE_BY_MODE[mode]
+def env_example_path() -> Path:
+    return plugin_root() / ENV_EXAMPLE_NAME
 
 
-def default_env_target(mode: str = "single") -> Path:
-    if mode == "test":
-        return Path(".env.test")
-    if mode == "prod":
-        return Path(".env.prod")
+def default_env_target() -> Path:
     return Path(".env")
+
+
+def targets_example_path() -> Path:
+    return plugin_root() / TARGETS_EXAMPLE_NAME
 
 
 def shell_copy_command(source: Path, target: Path) -> str:
@@ -68,7 +72,7 @@ def script_command() -> str:
 
 
 def env_setup_help(env_path: Path, *, missing_keys: list[str] | None = None) -> str:
-    example = env_example_path("single")
+    example = env_example_path()
     file_action = (
         "Update this env file"
         if env_path.exists()
@@ -93,12 +97,27 @@ def env_setup_help(env_path: Path, *, missing_keys: list[str] | None = None) -> 
             "3. Run preflight again before posting:",
             f"   {script_command()} --env {env_path} preflight",
             "",
-            "For separate test and production destinations, create .env.test and .env.prod from:",
-            f"   {env_example_path('test')}",
-            f"   {env_example_path('prod')}",
+            "For multiple kintone domains, Spaces, or threads, create target aliases:",
+            f"   {script_command()} init-targets",
         ]
     )
     return "\n".join(lines)
+
+
+def targets_setup_help(targets_path: Path) -> str:
+    return "\n".join(
+        [
+            f"Cannot use kintone target aliases from: {targets_path}",
+            "",
+            "How to fix:",
+            "1. Create the workspace target file:",
+            f"   {shell_copy_command(targets_example_path(), targets_path)}",
+            "2. Fill environments, spaces, and threads. Give each thread a unique alias.",
+            "3. Put real passwords in .env or system environment variables, then reference them with passwordEnv.",
+            "4. Run preflight for one alias:",
+            f"   {script_command()} --target test-news preflight",
+        ]
+    )
 
 
 def load_env(path: Path) -> dict[str, str]:
@@ -111,8 +130,236 @@ def load_env(path: Path) -> dict[str, str]:
             key, value = line.split("=", 1)
             values[key.strip()] = value.strip().strip('"').strip("'")
     for key, value in os.environ.items():
-        values.setdefault(key, value)
+        if not values.get(key):
+            values[key] = value
     return values
+
+
+def load_targets(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        raise ConfigError(targets_setup_help(path))
+    if yaml is None:
+        raise ConfigError(
+            "\n".join(
+                [
+                    "Reading kintone-targets.yaml requires PyYAML.",
+                    "Install it for this Python environment:",
+                    "   python -m pip install pyyaml",
+                    "",
+                    "You can still use the old single-target .env mode without YAML.",
+                ]
+            )
+        )
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        raise ConfigError(f"Could not read YAML target file {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ConfigError(f"Target file must contain a YAML mapping: {path}")
+    has_nested = isinstance(data.get("environments"), dict)
+    has_flat = isinstance(data.get("targets"), dict)
+    if not has_nested and not has_flat:
+        raise ConfigError(
+            f"Target file must define environments or a legacy targets mapping: {path}"
+        )
+    return data
+
+
+def string_value(source: dict[str, Any], key: str) -> str:
+    value = source.get(key, "")
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def secret_value(
+    target: dict[str, Any],
+    env: dict[str, str],
+    *,
+    value_key: str,
+    env_key: str,
+    label: str,
+    required: bool,
+    target_alias: str,
+) -> str:
+    direct = string_value(target, value_key)
+    env_name = string_value(target, env_key)
+    if direct:
+        return direct
+    if env_name:
+        value = env.get(env_name, "").strip()
+        if not value:
+            raise ConfigError(
+                "\n".join(
+                    [
+                        f"Target '{target_alias}' points {label} to {env_name}, but that variable is empty.",
+                        "Set it in .env or in the system environment, then run preflight again.",
+                    ]
+                )
+            )
+        return value
+    if required:
+        raise ConfigError(
+            f"Target '{target_alias}' must set {value_key} or {env_key} for {label}."
+        )
+    return ""
+
+
+def merge_dicts(*sources: dict[str, Any]) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    for source in sources:
+        for key, value in source.items():
+            if key not in ("spaces", "threads") and value not in (None, ""):
+                merged[key] = value
+    return merged
+
+
+def collect_nested_targets(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    environments = data.get("environments")
+    if not isinstance(environments, dict) or not environments:
+        raise ConfigError("Target file must define a non-empty environments mapping")
+    targets: dict[str, dict[str, Any]] = {}
+    for env_key, env_config in environments.items():
+        if not isinstance(env_config, dict):
+            raise ConfigError(f"Environment '{env_key}' must be a mapping")
+        spaces = env_config.get("spaces")
+        if not isinstance(spaces, dict) or not spaces:
+            raise ConfigError(f"Environment '{env_key}' must define spaces")
+        for space_key, space_config in spaces.items():
+            if not isinstance(space_config, dict):
+                raise ConfigError(f"Space '{env_key}.{space_key}' must be a mapping")
+            threads = space_config.get("threads")
+            if not isinstance(threads, dict) or not threads:
+                raise ConfigError(f"Space '{env_key}.{space_key}' must define threads")
+            for thread_key, thread_config in threads.items():
+                if not isinstance(thread_config, dict):
+                    raise ConfigError(
+                        f"Thread '{env_key}.{space_key}.{thread_key}' must be a mapping"
+                    )
+                alias = string_value(thread_config, "alias")
+                if not alias:
+                    raise ConfigError(
+                        f"Thread '{env_key}.{space_key}.{thread_key}' must define a unique alias"
+                    )
+                if alias in targets:
+                    raise ConfigError(f"Duplicate thread alias in target file: {alias}")
+                target = merge_dicts(env_config, space_config, thread_config)
+                target["environment"] = str(env_key)
+                target["space"] = str(space_key)
+                target["thread"] = str(thread_key)
+                target["label"] = " / ".join(
+                    part
+                    for part in (
+                        string_value(env_config, "label"),
+                        string_value(space_config, "label"),
+                        string_value(thread_config, "nickname")
+                        or string_value(thread_config, "label"),
+                    )
+                    if part
+                )
+                targets[alias] = target
+    return targets
+
+
+def collect_targets(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    if isinstance(data.get("environments"), dict):
+        return collect_nested_targets(data)
+    raw_targets = data.get("targets")
+    if not isinstance(raw_targets, dict) or not raw_targets:
+        raise ConfigError("Target file must define a non-empty targets mapping")
+    targets: dict[str, dict[str, Any]] = {}
+    for alias, target in raw_targets.items():
+        if not isinstance(target, dict):
+            raise ConfigError(f"Target '{alias}' must be a mapping")
+        targets[str(alias)] = target
+    return targets
+
+
+def build_target_config(
+    env_path: Path,
+    targets_path: Path,
+    requested_target: str | None,
+) -> dict[str, str]:
+    env = load_env(env_path)
+    data = load_targets(targets_path)
+    targets = collect_targets(data)
+    target_alias = (
+        requested_target
+        or env.get("KINTONE_TARGET", "").strip()
+        or string_value(data, "defaultTarget")
+    )
+    if not target_alias:
+        raise ConfigError(
+            "\n".join(
+                [
+                    "No kintone target alias was selected.",
+                    f"Set defaultTarget in {targets_path}, set KINTONE_TARGET in .env, or pass --target <alias>.",
+                    f"Available targets: {', '.join(sorted(targets))}",
+                ]
+            )
+        )
+    raw_target = targets.get(target_alias)
+    if not isinstance(raw_target, dict):
+        raise ConfigError(
+            "\n".join(
+                [
+                    f"Unknown kintone target alias: {target_alias}",
+                    f"Available targets: {', '.join(sorted(targets))}",
+                ]
+            )
+        )
+    missing = [field for field in TARGET_REQUIRED_FIELDS if not string_value(raw_target, field)]
+    if missing:
+        raise ConfigError(
+            f"Target '{target_alias}' is missing required fields: {', '.join(missing)}"
+        )
+    password = secret_value(
+        raw_target,
+        env,
+        value_key="password",
+        env_key="passwordEnv",
+        label="password",
+        required=True,
+        target_alias=target_alias,
+    )
+    basic_auth_username = secret_value(
+        raw_target,
+        env,
+        value_key="basicAuthUsername",
+        env_key="basicAuthUsernameEnv",
+        label="cybozu Basic Auth username",
+        required=False,
+        target_alias=target_alias,
+    )
+    basic_auth_password = secret_value(
+        raw_target,
+        env,
+        value_key="basicAuthPassword",
+        env_key="basicAuthPasswordEnv",
+        label="cybozu Basic Auth password",
+        required=False,
+        target_alias=target_alias,
+    )
+    config = {
+        "target": target_alias,
+        "target_label": string_value(raw_target, "label"),
+        "base_url": string_value(raw_target, "baseUrl").rstrip("/"),
+        "username": string_value(raw_target, "username"),
+        "password": password,
+        "space_id": string_value(raw_target, "spaceId"),
+        "thread_id": string_value(raw_target, "threadId"),
+        "guest_space_id": string_value(raw_target, "guestSpaceId"),
+        "image_width": string_value(raw_target, "imageWidth") or str(DEFAULT_IMAGE_WIDTH),
+        "basic_auth_username": basic_auth_username,
+        "basic_auth_password": basic_auth_password,
+    }
+    has_basic_user = bool(config["basic_auth_username"])
+    has_basic_password = bool(config["basic_auth_password"])
+    if has_basic_user != has_basic_password:
+        raise ConfigError(
+            f"Target '{target_alias}' must set Basic Auth username and password together"
+        )
+    return config
 
 
 def require_config(env: dict[str, str], key: str, env_path: Path) -> str:
@@ -122,7 +369,7 @@ def require_config(env: dict[str, str], key: str, env_path: Path) -> str:
     return value
 
 
-def build_config(env_path: Path) -> dict[str, str]:
+def build_env_config(env_path: Path) -> dict[str, str]:
     if not env_path.exists():
         raise ConfigError(env_setup_help(env_path))
     env = load_env(env_path)
@@ -147,6 +394,16 @@ def build_config(env_path: Path) -> dict[str, str]:
             "KINTONE_BASIC_AUTH_USERNAME and KINTONE_BASIC_AUTH_PASSWORD must be set together"
         )
     return config
+
+
+def build_config(
+    env_path: Path,
+    targets_path: Path,
+    requested_target: str | None,
+) -> dict[str, str]:
+    if requested_target or targets_path.exists():
+        return build_target_config(env_path, targets_path, requested_target)
+    return build_env_config(env_path)
 
 
 def api_path(config: dict[str, str], path: str) -> str:
@@ -288,6 +545,8 @@ def write_publish_record(
             "textLength": len(text),
         },
         "kintone": {
+            "target": config.get("target") or None,
+            "targetLabel": config.get("target_label") or None,
             "baseUrl": config["base_url"],
             "spaceId": config["space_id"],
             "threadId": config["thread_id"],
@@ -351,24 +610,24 @@ def build_comment_payload(
 
 
 def command_preflight(args: argparse.Namespace) -> int:
-    config = build_config(args.env)
+    config = build_config(args.env, args.targets, args.target)
     width = parse_width(config["image_width"])
     summary = {
+        "target": config.get("target") or None,
+        "targetLabel": config.get("target_label") or None,
         "baseUrl": config["base_url"],
         "spaceId": config["space_id"],
         "threadId": config["thread_id"],
-        "guestSpaceId": config["guest_space_id"] or None,
         "imageWidth": width,
         "auth": "username-password",
-        "cybozuBasicAuth": bool(config["basic_auth_username"]),
     }
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     return 0
 
 
 def command_init_env(args: argparse.Namespace) -> int:
-    target = args.output or default_env_target(args.mode)
-    source = env_example_path(args.mode)
+    target = args.output or default_env_target()
+    source = env_example_path()
     if not source.exists():
         raise ConfigError(f"Bundled env example was not found: {source}")
     if target.exists() and not args.force:
@@ -390,10 +649,12 @@ def command_init_env(args: argparse.Namespace) -> int:
                 f"Source example: {source}",
                 "",
                 "Next steps:",
-                "1. Open the env file and fill in:",
+                "1. If you use kintone-targets.yaml, fill the password variables referenced by passwordEnv.",
+                "2. If you use legacy single-target .env mode, fill:",
                 *[f"   - {key}" for key in REQUIRED_CONFIG_KEYS],
-                "2. Leave KINTONE_GUEST_SPACE_ID empty for a normal Space.",
-                "3. Run preflight before posting:",
+                "3. Run preflight before posting. For target aliases:",
+                f"   {script_command()} --target test-news preflight",
+                "   For legacy single-target .env mode:",
                 f"   {script_command()} --env {target} preflight",
             ]
         )
@@ -401,8 +662,42 @@ def command_init_env(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_init_targets(args: argparse.Namespace) -> int:
+    target = args.output or DEFAULT_TARGETS_PATH
+    source = targets_example_path()
+    if not source.exists():
+        raise ConfigError(f"Bundled target example was not found: {source}")
+    if target.exists() and not args.force:
+        raise ConfigError(
+            "\n".join(
+                [
+                    f"Target file already exists: {target}",
+                    "No changes were made.",
+                    "Edit the existing file, or rerun with --force if you intentionally want to replace it.",
+                ]
+            )
+        )
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    print(
+        "\n".join(
+            [
+                f"Created target template: {target}",
+                f"Source example: {source}",
+                "",
+                "Next steps:",
+                "1. Edit environments, spaces, and threads. Give each thread a unique alias.",
+                "2. Put real passwords in .env using the passwordEnv names from the YAML file.",
+                "3. Run preflight for one target:",
+                f"   {script_command()} --target test-news preflight",
+            ]
+        )
+    )
+    return 0
+
+
 def command_upload_file(args: argparse.Namespace) -> int:
-    config = build_config(args.env)
+    config = build_config(args.env, args.targets, args.target)
     file_key = upload_file(config, args.file)
     print(json.dumps({"fileKey": file_key}, indent=2))
     return 0
@@ -417,7 +712,7 @@ def read_comment_text(args: argparse.Namespace) -> str:
 
 
 def command_post_comment(args: argparse.Namespace) -> int:
-    config = build_config(args.env)
+    config = build_config(args.env, args.targets, args.target)
     width = parse_width(args.width or config["image_width"])
     images = args.image or []
     if len(images) + len(args.file_key or []) > MAX_COMMENT_FILES:
@@ -474,7 +769,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--env",
         type=Path,
         default=Path(".env"),
-        help="Path to workspace .env file. Defaults to .env.",
+        help="Path to workspace .env secrets file. Defaults to .env.",
+    )
+    parser.add_argument(
+        "--targets",
+        type=Path,
+        default=DEFAULT_TARGETS_PATH,
+        help="Path to kintone target alias YAML. Defaults to kintone-targets.yaml.",
+    )
+    parser.add_argument(
+        "--target",
+        help="Target alias from kintone-targets.yaml. Overrides defaultTarget and KINTONE_TARGET.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -483,15 +788,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Create a workspace env template from the bundled example",
     )
     init_env.add_argument(
-        "--mode",
-        choices=["single", "test", "prod"],
-        default="single",
-        help="Which example to copy. Defaults to single.",
-    )
-    init_env.add_argument(
         "--output",
         type=Path,
-        help="Output env path. Defaults to .env, .env.test, or .env.prod.",
+        help="Output env path. Defaults to .env.",
     )
     init_env.add_argument(
         "--force",
@@ -499,6 +798,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Replace the output file if it already exists.",
     )
     init_env.set_defaults(func=command_init_env)
+
+    init_targets = subparsers.add_parser(
+        "init-targets",
+        help="Create a workspace kintone target alias YAML template",
+    )
+    init_targets.add_argument(
+        "--output",
+        type=Path,
+        help="Output YAML path. Defaults to kintone-targets.yaml.",
+    )
+    init_targets.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace the output file if it already exists.",
+    )
+    init_targets.set_defaults(func=command_init_targets)
 
     preflight = subparsers.add_parser("preflight", help="Validate local settings")
     preflight.set_defaults(func=command_preflight)

@@ -14,12 +14,6 @@ Primary endpoint:
 POST /k/v1/space/thread/comment.json
 ```
 
-Guest-space endpoint shape:
-
-```text
-POST /k/guest/{guestSpaceId}/v1/space/thread/comment.json
-```
-
 The request body includes:
 
 - `space`: Space ID
@@ -85,36 +79,77 @@ If a future version requires true text-image interleaving, it should be treated 
 
 ## Environment
 
-kintone credentials and target IDs belong in the article workspace `.env`, not inside the plugin repository or shared plugin knowledge.
+kintone target IDs belong in the article workspace `kintone-targets.yaml`, not inside the plugin repository or shared plugin knowledge. Secrets belong in `.env`.
 
-For workflows with separate test and official destinations, use two workspace-local environment files:
+Use nested target configuration for multiple domains, Spaces, and threads. The file follows the same mental model as kintone: environment, then Space, then Thread. Each thread defines one unique publish alias:
 
-```text
-.env.test
-.env.prod
+```yaml
+defaultTarget: test-news
+
+environments:
+  test:
+    label: "测试环境"
+    baseUrl: "https://test-example.cybozu.com"
+    username: "writer@example.com"
+    passwordEnv: "KINTONE_TEST_PASSWORD"
+
+    spaces:
+      main:
+        label: "测试主空间"
+        spaceId: "10"
+
+        threads:
+          news:
+            alias: "test-news"
+            nickname: "测试文章帖"
+            threadId: "12"
+            imageWidth: 600
+
+  env1:
+    label: "环境1"
+    baseUrl: "https://env1-example.cybozu.com"
+    username: "writer@example.com"
+    passwordEnv: "KINTONE_ENV1_PASSWORD"
+
+    spaces:
+      company:
+        label: "总公司空间"
+        spaceId: "20"
+
+        threads:
+          news:
+            alias: "company-news"
+            nickname: "总公司文章帖"
+            threadId: "34"
+            imageWidth: 600
 ```
 
-The script already accepts any env file through `--env`, so no special code path is needed:
+The `.env` file keeps passwords and may select a default target:
 
-```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py --env .env.test preflight
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py --env .env.prod preflight
+```dotenv
+KINTONE_TARGET=test-news
+KINTONE_TEST_PASSWORD=
+KINTONE_ENV1_PASSWORD=
+KINTONE_ENV2_PASSWORD=
 ```
 
-For a new article workspace, create the env file from the bundled example instead of writing it by hand:
+The script accepts a target alias:
 
 ```powershell
-# Single destination
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target test-news preflight
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target company-news preflight
+```
+
+For a new article workspace, create the env and target files from bundled examples instead of writing them by hand:
+
+```powershell
 python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-env
-
-# Separate test and production destinations
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-env --mode test
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-env --mode prod
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-targets
 ```
 
-If the env file is missing or required values are blank, the script prints a plain-language setup guide showing the env path it tried to use, the example file to copy, the required fields, and the preflight command to rerun. This is intentional: a first-time user should not have to inspect Python errors or plugin source to know the next step.
+If the env or target file is missing or required values are blank, the script prints a plain-language setup guide showing the file it tried to use, the example file to copy, the required fields, and the preflight command to rerun. This is intentional: a first-time user should not have to inspect Python errors or plugin source to know the next step.
 
-Initial keys:
+Legacy single-target `.env` mode remains supported when `kintone-targets.yaml` is absent:
 
 ```dotenv
 KINTONE_BASE_URL=https://example.cybozu.com
@@ -122,25 +157,19 @@ KINTONE_USERNAME=
 KINTONE_PASSWORD=
 KINTONE_SPACE_ID=
 KINTONE_THREAD_ID=
-KINTONE_GUEST_SPACE_ID=
 KINTONE_IMAGE_WIDTH=600
-KINTONE_BASIC_AUTH_USERNAME=
-KINTONE_BASIC_AUTH_PASSWORD=
 ```
-
-`KINTONE_GUEST_SPACE_ID` is optional and should be empty for normal spaces.
-`KINTONE_BASIC_AUTH_USERNAME` and `KINTONE_BASIC_AUTH_PASSWORD` are optional and should be set only when the kintone environment also requires cybozu Basic Auth.
 
 ## Test Then Production Flow
 
-When both `.env.test` and `.env.prod` exist, Codex should use a natural-language confirmation flow instead of making the user remember command flags.
+When test and official target aliases exist, Codex should use a natural-language confirmation flow instead of making the user remember command flags.
 
 Default publishing sequence:
 
 1. Ask whether to send to the test environment first.
-2. Post to `.env.test` and write a publish record under `metadata/publish-log/test/`.
+2. Post to the test alias and write a publish record under `metadata/publish-log/test/`.
 3. Ask the user to inspect the test comment in kintone Web UI.
-4. If the user says the format/content is correct, post the same draft and attachments to `.env.prod`.
+4. If the user says the format/content is correct, post the same draft and attachments to the official alias.
 5. Write the production publish record under `metadata/publish-log/prod/`.
 
 The test and production posts are separate kintone comments with separate comment IDs. The local publish records connect both comments back to the same draft ID and text hash.
@@ -179,7 +208,7 @@ When drafting, Codex should apply rules in this priority order:
 2. the workspace profile
 3. plugin skill defaults
 
-The workspace profile must not contain credentials. `.env` remains the only workspace-local file for kintone secrets and target IDs.
+The workspace profile must not contain credentials. `kintone-targets.yaml` remains the workspace-local file for target IDs. `.env` remains the workspace-local file for secrets.
 
 ## Asset Direction
 
@@ -195,8 +224,8 @@ Recommended shape:
 
 ```text
 kintone-space-writer.md
-.env.test
-.env.prod
+.env
+kintone-targets.yaml
 drafts/
   article-v001.md
   article-v002.md

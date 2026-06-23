@@ -1,0 +1,65 @@
+# Copy to kintone-targets.yaml in an article workspace.
+# Keep real passwords in .env or system environment variables.
+
+defaultTarget: test-news
+
+environments:
+  test:
+    label: "测试环境"
+    baseUrl: "https://test-example.cybozu.com"
+    username: "writer@example.com"
+    passwordEnv: "KINTONE_TEST_PASSWORD"
+
+    spaces:
+      main:
+        label: "测试主空间"
+        spaceId: "10"
+
+        threads:
+          news:
+            alias: "test-news"
+            nickname: "测试文章帖"
+            threadId: "12"
+            imageWidth: 600
+
+  env1:
+    label: "环境1"
+    baseUrl: "https://env1-example.cybozu.com"
+    username: "writer@example.com"
+    passwordEnv: "KINTONE_ENV1_PASSWORD"
+
+    spaces:
+      company:
+        label: "总公司空间"
+        spaceId: "20"
+
+        threads:
+          news:
+            alias: "company-news"
+            nickname: "总公司文章帖"
+            threadId: "34"
+            imageWidth: 600
+
+          notice:
+            alias: "company-notice"
+            nickname: "总公司通知帖"
+            threadId: "35"
+            imageWidth: 600
+
+  env2:
+    label: "环境2"
+    baseUrl: "https://env2-example.cybozu.com"
+    username: "writer@example.com"
+    passwordEnv: "KINTONE_ENV2_PASSWORD"
+
+    spaces:
+      branch:
+        label: "子公司空间"
+        spaceId: "30"
+
+        threads:
+          news:
+            alias: "branch-news"
+            nickname: "子公司文章帖"
+            threadId: "56"
+            imageWidth: 600

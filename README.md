@@ -11,6 +11,7 @@ kintone-space-writer/
   plugins/kintone-space-writer/
     .codex-plugin/plugin.json
     .env.example
+    kintone-targets.example.yaml
     assets/
     scripts/
     skills/
@@ -29,7 +30,8 @@ This matches the `git-subdir` publishing style used by the 2water Codex plugin m
 - Draft and revise articles for kintone Space.
 - Publish only by adding a comment to an existing Space thread.
 - Do not update Space or thread body content.
-- Use article/workspace-local `.env` for kintone credentials and target IDs.
+- Use article/workspace-local `kintone-targets.yaml` for target aliases.
+- Use article/workspace-local `.env` for secrets and optional default target selection.
 - Use article/workspace-local `kintone-space-writer.md` for reusable writing preferences and formatting habits.
 - Start with username/password authentication.
 - Treat article images as comment attachments.
@@ -77,19 +79,20 @@ In a real article workspace, create the local kintone settings file before publi
 
 ```powershell
 python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-env
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-targets
 ```
 
-Then fill in `.env` and verify it:
+Then fill in `.env` passwords, edit `kintone-targets.yaml`, and verify one target alias:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py --env .env preflight
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target test-news preflight
 ```
 
-For separate test and production destinations, use:
+Use a target alias when posting:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-env --mode test
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-env --mode prod
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target company-news post-comment --text-file drafts/article.txt
 ```
 
-The script prints setup guidance if the env file is missing or incomplete.
+The old single-target `.env` mode still works when `kintone-targets.yaml` is absent.
+The script prints setup guidance if the env or target file is missing or incomplete.
