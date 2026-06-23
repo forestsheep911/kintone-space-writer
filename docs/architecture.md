@@ -101,6 +101,19 @@ python plugins/kintone-space-writer/scripts/kintone_space_comment.py --env .env.
 python plugins/kintone-space-writer/scripts/kintone_space_comment.py --env .env.prod preflight
 ```
 
+For a new article workspace, create the env file from the bundled example instead of writing it by hand:
+
+```powershell
+# Single destination
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-env
+
+# Separate test and production destinations
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-env --mode test
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-env --mode prod
+```
+
+If the env file is missing or required values are blank, the script prints a plain-language setup guide showing the env path it tried to use, the example file to copy, the required fields, and the preflight command to rerun. This is intentional: a first-time user should not have to inspect Python errors or plugin source to know the next step.
+
 Initial keys:
 
 ```dotenv

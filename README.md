@@ -70,3 +70,26 @@ Validate the plugin:
 ```powershell
 python C:/Users/bxu/.GZ9EE915VU4opI0l1i0M6123/skills/.system/plugin-creator/scripts/validate_plugin.py ./plugins/kintone-space-writer
 ```
+
+## New Article Workspace Setup
+
+In a real article workspace, create the local kintone settings file before publishing:
+
+```powershell
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-env
+```
+
+Then fill in `.env` and verify it:
+
+```powershell
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py --env .env preflight
+```
+
+For separate test and production destinations, use:
+
+```powershell
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-env --mode test
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-env --mode prod
+```
+
+The script prints setup guidance if the env file is missing or incomplete.

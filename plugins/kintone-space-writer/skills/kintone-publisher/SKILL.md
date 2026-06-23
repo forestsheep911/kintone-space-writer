@@ -17,6 +17,16 @@ Load kintone settings from the user's article/workspace env file.
 
 Use `.env` for a single destination. Use `.env.test` and `.env.prod` when the workspace has separate test and official destinations.
 
+If the workspace env file is missing or incomplete, do not ask the user to infer the format. Tell them exactly which file to create and point them to the bundled examples. Prefer the script's `init-env` command because it copies the right template into the current article workspace:
+
+```powershell
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-env
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-env --mode test
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-env --mode prod
+```
+
+After the user fills the env file, run `preflight` before any real post.
+
 Required:
 
 - `KINTONE_BASE_URL`
@@ -71,6 +81,7 @@ Use `../../scripts/kintone_space_comment.py` for dry runs, file upload, and comm
 Recommended preflight:
 
 ```powershell
+python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-env
 python plugins/kintone-space-writer/scripts/kintone_space_comment.py --env .env.test preflight
 python plugins/kintone-space-writer/scripts/kintone_space_comment.py --env .env.prod preflight
 ```

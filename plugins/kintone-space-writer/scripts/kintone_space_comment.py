@@ -25,10 +25,80 @@ from typing import Any
 
 MAX_COMMENT_FILES = 5
 DEFAULT_IMAGE_WIDTH = 600
+REQUIRED_CONFIG_KEYS = (
+    "KINTONE_BASE_URL",
+    "KINTONE_USERNAME",
+    "KINTONE_PASSWORD",
+    "KINTONE_SPACE_ID",
+    "KINTONE_THREAD_ID",
+)
+ENV_EXAMPLE_BY_MODE = {
+    "single": ".env.example",
+    "test": ".env.test.example",
+    "prod": ".env.prod.example",
+}
 
 
 class ConfigError(RuntimeError):
     pass
+
+
+def plugin_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def env_example_path(mode: str = "single") -> Path:
+    return plugin_root() / ENV_EXAMPLE_BY_MODE[mode]
+
+
+def default_env_target(mode: str = "single") -> Path:
+    if mode == "test":
+        return Path(".env.test")
+    if mode == "prod":
+        return Path(".env.prod")
+    return Path(".env")
+
+
+def shell_copy_command(source: Path, target: Path) -> str:
+    return f"Copy-Item -LiteralPath '{source}' -Destination '{target}'"
+
+
+def script_command() -> str:
+    return f"python {Path(sys.argv[0])}"
+
+
+def env_setup_help(env_path: Path, *, missing_keys: list[str] | None = None) -> str:
+    example = env_example_path("single")
+    file_action = (
+        "Update this env file"
+        if env_path.exists()
+        else "Create a workspace env file from the bundled example"
+    )
+    lines = [
+        f"Cannot use kintone publishing settings from: {env_path}",
+        "",
+        "How to fix:",
+        f"1. {file_action}:",
+    ]
+    if env_path.exists():
+        lines.append(f"   {env_path}")
+    else:
+        lines.append(f"   {shell_copy_command(example, env_path)}")
+    lines.append("2. Fill in these required values:")
+    for key in REQUIRED_CONFIG_KEYS:
+        marker = " (missing)" if missing_keys and key in missing_keys else ""
+        lines.append(f"   - {key}{marker}")
+    lines.extend(
+        [
+            "3. Run preflight again before posting:",
+            f"   {script_command()} --env {env_path} preflight",
+            "",
+            "For separate test and production destinations, create .env.test and .env.prod from:",
+            f"   {env_example_path('test')}",
+            f"   {env_example_path('prod')}",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def load_env(path: Path) -> dict[str, str]:
@@ -45,21 +115,26 @@ def load_env(path: Path) -> dict[str, str]:
     return values
 
 
-def require_config(env: dict[str, str], key: str) -> str:
+def require_config(env: dict[str, str], key: str, env_path: Path) -> str:
     value = env.get(key, "").strip()
     if not value:
-        raise ConfigError(f"Missing required setting: {key}")
+        raise ConfigError(env_setup_help(env_path, missing_keys=[key]))
     return value
 
 
 def build_config(env_path: Path) -> dict[str, str]:
+    if not env_path.exists():
+        raise ConfigError(env_setup_help(env_path))
     env = load_env(env_path)
+    missing_keys = [key for key in REQUIRED_CONFIG_KEYS if not env.get(key, "").strip()]
+    if missing_keys:
+        raise ConfigError(env_setup_help(env_path, missing_keys=missing_keys))
     config = {
-        "base_url": require_config(env, "KINTONE_BASE_URL").rstrip("/"),
-        "username": require_config(env, "KINTONE_USERNAME"),
-        "password": require_config(env, "KINTONE_PASSWORD"),
-        "space_id": require_config(env, "KINTONE_SPACE_ID"),
-        "thread_id": require_config(env, "KINTONE_THREAD_ID"),
+        "base_url": require_config(env, "KINTONE_BASE_URL", env_path).rstrip("/"),
+        "username": require_config(env, "KINTONE_USERNAME", env_path),
+        "password": require_config(env, "KINTONE_PASSWORD", env_path),
+        "space_id": require_config(env, "KINTONE_SPACE_ID", env_path),
+        "thread_id": require_config(env, "KINTONE_THREAD_ID", env_path),
         "guest_space_id": env.get("KINTONE_GUEST_SPACE_ID", "").strip(),
         "image_width": env.get("KINTONE_IMAGE_WIDTH", str(DEFAULT_IMAGE_WIDTH)).strip(),
         "basic_auth_username": env.get("KINTONE_BASIC_AUTH_USERNAME", "").strip(),
@@ -291,6 +366,41 @@ def command_preflight(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_init_env(args: argparse.Namespace) -> int:
+    target = args.output or default_env_target(args.mode)
+    source = env_example_path(args.mode)
+    if not source.exists():
+        raise ConfigError(f"Bundled env example was not found: {source}")
+    if target.exists() and not args.force:
+        raise ConfigError(
+            "\n".join(
+                [
+                    f"Env file already exists: {target}",
+                    "No changes were made.",
+                    "Edit the existing file, or rerun with --force if you intentionally want to replace it.",
+                ]
+            )
+        )
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    print(
+        "\n".join(
+            [
+                f"Created env template: {target}",
+                f"Source example: {source}",
+                "",
+                "Next steps:",
+                "1. Open the env file and fill in:",
+                *[f"   - {key}" for key in REQUIRED_CONFIG_KEYS],
+                "2. Leave KINTONE_GUEST_SPACE_ID empty for a normal Space.",
+                "3. Run preflight before posting:",
+                f"   {script_command()} --env {target} preflight",
+            ]
+        )
+    )
+    return 0
+
+
 def command_upload_file(args: argparse.Namespace) -> int:
     config = build_config(args.env)
     file_key = upload_file(config, args.file)
@@ -367,6 +477,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to workspace .env file. Defaults to .env.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    init_env = subparsers.add_parser(
+        "init-env",
+        help="Create a workspace env template from the bundled example",
+    )
+    init_env.add_argument(
+        "--mode",
+        choices=["single", "test", "prod"],
+        default="single",
+        help="Which example to copy. Defaults to single.",
+    )
+    init_env.add_argument(
+        "--output",
+        type=Path,
+        help="Output env path. Defaults to .env, .env.test, or .env.prod.",
+    )
+    init_env.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace the output file if it already exists.",
+    )
+    init_env.set_defaults(func=command_init_env)
 
     preflight = subparsers.add_parser("preflight", help="Validate local settings")
     preflight.set_defaults(func=command_preflight)
