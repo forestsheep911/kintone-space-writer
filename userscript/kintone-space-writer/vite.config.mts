@@ -16,7 +16,7 @@ export default defineConfig(({ mode }) => ({
           'zh-CN': 'kintone Space Writer（标准版）',
         },
         namespace: 'https://github.com/forestsheep911/codex-plugin-marketplace-2water',
-        version: '0.2.3',
+        version: '0.2.4',
         description: 'Inject Ready rich articles from the local kintone Space Writer bridge',
         author: '2water',
         match: [
@@ -33,10 +33,10 @@ export default defineConfig(({ mode }) => ({
         grant: ['GM_getValue', 'GM_setValue', 'GM_xmlhttpRequest'],
         connect: ['127.0.0.1', 'localhost'],
       },
-      server: { open: true },
+      server: { open: true, prefix: false },
       build: {
         fileName: 'kintone-space-writer.user.js',
-        autoGrant: true,
+        autoGrant: false,
       },
     }),
   ],

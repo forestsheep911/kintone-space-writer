@@ -87,6 +87,11 @@ package. With it disabled, click `手动注入 Ready 文章`. A missing Ready pa
 target mismatch, non-empty editor, upload failure, or selector failure is shown
 in the panel without publishing anything.
 
+kintone requires one real user gesture before it creates the rich comment
+editor. If the page still shows the collapsed `发表评论…` entry, click it once.
+The package remains Ready while the entry is collapsed; after the rich editor
+appears, automatic mode continues with upload and injection on the next poll.
+
 ## Store userscript
 
 Build:

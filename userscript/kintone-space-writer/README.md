@@ -6,6 +6,11 @@ through the authenticated kintone Web UI and injects all ordered text/image
 blocks into the native comment editor. The user reviews the result and clicks
 the native publish button.
 
+On a freshly loaded thread, kintone requires one real user click on its native
+`发表评论…` entry before it creates the rich editor. The package remains Ready
+until that happens. No additional click or cursor placement is needed after the
+editor expands; automatic mode continues on its next poll.
+
 The floating panel intentionally contains only:
 
 - Bridge connection state;

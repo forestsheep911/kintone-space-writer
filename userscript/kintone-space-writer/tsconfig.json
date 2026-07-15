@@ -8,7 +8,7 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "types": ["node", "vite-plugin-monkey/client"]
+    "types": ["node", "vite/client", "vite-plugin-monkey/client"]
   },
   "include": ["src", "vite.config.mts"]
 }

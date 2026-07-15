@@ -95,18 +95,24 @@ const CLIENT_KEY = 'ksw-standard-client-id'
 const PORTS_KEY = 'ksw-standard-bridge-ports'
 const INJECTED_KEY = 'ksw-standard-injected-packages'
 const DISCOVERY_INTERVAL_MS = 5000
-const FULL_DISCOVERY_INTERVAL_MS = 30000
 const CONNECTION_GRACE_MS = 60000
 const POLL_INTERVAL_MS = 1500
+const DEV_MODE = import.meta.env.DEV
+const DEV_LABEL = 'DEV 0.2.4'
 
 let editor: HTMLElement | null = null
 let busy = false
 let connections: BridgeConnection[] = []
 let lastDiscovery = 0
-let lastFullDiscovery = 0
 let lastConnectedAt = 0
 let discoveryInFlight: Promise<BridgeConnection[]> | null = null
 let pollTimer: number | null = null
+
+function debugStage(stage: string, message: string, detail?: Record<string, unknown>) {
+  if (!DEV_MODE) return
+  console.info(`[KSW ${DEV_LABEL}] ${stage} ${message}`, detail ?? '')
+  renderMessage(`[${stage}] ${message}`, 'working')
+}
 
 function isThreadPage() {
   return /\/space\/\d+\/thread\/\d+/i.test(location.href)
@@ -134,8 +140,13 @@ function gmRequest<T>(options: {
   responseType?: 'json' | 'blob'
   timeout?: number
 }): Promise<GmResponse<T>> {
+  if (DEV_MODE) {
+    const parsed = new URL(options.url)
+    debugStage('HTTP→', `${options.method ?? 'GET'} ${parsed.pathname}`, { port: parsed.port })
+  }
   return new Promise((resolve, reject) => {
     let settled = false
+    let abortRequest: (() => void) | null = null
     const timeout = options.timeout ?? 1500
     const finish = (action: () => void) => {
       if (settled) return
@@ -144,20 +155,34 @@ function gmRequest<T>(options: {
       action()
     }
     const fallbackTimer = window.setTimeout(
-      () => finish(() => reject(new Error('本地 Bridge 请求超时'))),
+      () => finish(() => {
+        abortRequest?.()
+        debugStage('HTTP×', `兜底超时 ${new URL(options.url).pathname}`)
+        reject(new Error('本地 Bridge 请求超时'))
+      }),
       timeout + 500,
     )
-    GM_xmlhttpRequest({
+    const control = GM_xmlhttpRequest({
       method: options.method ?? 'GET',
       url: options.url,
       headers: options.headers,
       data: options.data,
       responseType: options.responseType ?? 'json',
       timeout,
-      onload: (response) => finish(() => resolve(response as GmResponse<T>)),
-      onerror: () => finish(() => reject(new Error('本地 Bridge 请求失败'))),
-      ontimeout: () => finish(() => reject(new Error('本地 Bridge 请求超时'))),
+      onload: (response) => finish(() => {
+        debugStage('HTTP←', `${response.status} ${new URL(options.url).pathname}`)
+        resolve(response as GmResponse<T>)
+      }),
+      onerror: () => finish(() => {
+        debugStage('HTTP×', `请求失败 ${new URL(options.url).pathname}`)
+        reject(new Error('本地 Bridge 请求失败'))
+      }),
+      ontimeout: () => finish(() => {
+        debugStage('HTTP×', `请求超时 ${new URL(options.url).pathname}`)
+        reject(new Error('本地 Bridge 请求超时'))
+      }),
     })
+    abortRequest = () => (control as unknown as { abort?: () => void }).abort?.()
   })
 }
 
@@ -176,27 +201,36 @@ async function probePort(port: number, timeout = 900): Promise<BridgeConnection 
 }
 
 async function performDiscovery(force: boolean) {
+  debugStage('D1', `开始发现 Bridge${force ? '（强制）' : ''}`)
   const now = Date.now()
   const previousConnections = connections
   const previousCount = connections.length
   const cached = GM_getValue<number[]>(PORTS_KEY, [])
   const knownPorts = [...new Set([...connections.map((connection) => connection.port), ...cached])]
-  const known = (await Promise.all(knownPorts.map((port) => probePort(port, 1200)))).filter(
+  let known = (await Promise.all(knownPorts.map((port) => probePort(port, 5000)))).filter(
     (value): value is BridgeConnection => Boolean(value),
   )
+  if (!known.length && knownPorts.length) {
+    await delay(250)
+    known = (await Promise.all(knownPorts.map((port) => probePort(port, 5000)))).filter(
+      (value): value is BridgeConnection => Boolean(value),
+    )
+  }
   let found = known
-  const needsFullScan = force || !known.length || now - lastFullDiscovery >= FULL_DISCOVERY_INTERVAL_MS
-  if (needsFullScan) {
+  const graceActive = previousConnections.length > 0 && now - lastConnectedAt < CONNECTION_GRACE_MS
+  if (!known.length && !graceActive) {
     const knownSet = new Set(knownPorts)
     const remainingPorts = Array.from(
       { length: PORT_END - PORT_START + 1 },
       (_, index) => PORT_START + index,
     ).filter((port) => !knownSet.has(port))
-    const additional = (await Promise.all(remainingPorts.map((port) => probePort(port)))).filter(
-      (value): value is BridgeConnection => Boolean(value),
-    )
-    found = [...known, ...additional]
-    lastFullDiscovery = Date.now()
+    for (const port of remainingPorts) {
+      const connection = await probePort(port)
+      if (connection) {
+        found = [connection]
+        break
+      }
+    }
   }
   const completedAt = Date.now()
   if (found.length) {
@@ -210,6 +244,9 @@ async function performDiscovery(force: boolean) {
   lastDiscovery = now
   GM_setValue(PORTS_KEY, connections.map((connection) => connection.port))
   renderConnection(connections.length)
+  debugStage('D1✓', `发现 ${connections.length} 个 Bridge`, {
+    ports: connections.map((connection) => connection.port),
+  })
   if (previousCount === 0 && connections.length > 0 && autoEnabled() && !busy) {
     window.setTimeout(() => void checkAndInject(false), 0)
   }
@@ -228,15 +265,22 @@ async function discoverBridges(force = false) {
   }
 }
 
-function bridgeHeaders(connection: BridgeConnection) {
-  return { 'X-KSW-Bridge-Token': connection.token }
+function authorizedBridgeUrl(connection: BridgeConnection, value: string) {
+  const url = new URL(value, `http://127.0.0.1:${connection.port}`)
+  url.searchParams.set('bridgeToken', connection.token)
+  return url.href
 }
 
 async function getReady(connection: BridgeConnection, target: PageTarget): Promise<BridgePackage | null> {
-  const query = new URLSearchParams(target)
+  debugStage('D3', `读取 ${connection.port} 的 Ready 草稿`, {
+    origin: target.origin,
+    spaceId: target.spaceId,
+    threadId: target.threadId,
+  })
+  const query = new URLSearchParams({ ...target, bridgeToken: connection.token })
   const response = await gmRequest<BridgePackage | { error?: string; count?: number }>({
     url: `http://127.0.0.1:${connection.port}/v1/ready?${query}`,
-    headers: bridgeHeaders(connection),
+    timeout: 10000,
   })
   if (response.status === 204) return null
   if (response.status === 409) throw new Error('当前目标存在多个 Ready 草稿，请先在本地处理冲突。')
@@ -245,6 +289,7 @@ async function getReady(connection: BridgeConnection, target: PageTarget): Promi
 }
 
 async function findReady(target: PageTarget, bridges: BridgeConnection[]) {
+  debugStage('D2', `使用已验证的 ${bridges.length} 个连接检查 Ready`)
   const matches: Array<{ connection: BridgeConnection; package: BridgePackage }> = []
   for (const connection of bridges) {
     const packageValue = await getReady(connection, target)
@@ -261,9 +306,9 @@ async function postBridge(
 ) {
   const response = await gmRequest<{ status?: string; error?: string }>({
     method: 'POST',
-    url: `http://127.0.0.1:${connection.port}${path}`,
-    headers: { ...bridgeHeaders(connection), 'Content-Type': 'application/json' },
+    url: authorizedBridgeUrl(connection, path),
     data: JSON.stringify(value),
+    timeout: 10000,
   })
   if (response.status < 200 || response.status >= 300) {
     throw new Error(response.response?.error || `Bridge 写入失败：HTTP ${response.status}`)
@@ -310,10 +355,25 @@ function findEditorCandidates() {
   return Array.from(unique).map(scoreEditor).filter((candidate) => candidate.score > 0).sort((a, b) => b.score - a.score)
 }
 
+function editorCandidateDiagnostics() {
+  return findEditorCandidates().slice(0, 5).map((candidate) => ({
+    tag: candidate.element.tagName,
+    id: candidate.element.id,
+    className: String(candidate.element.className),
+    role: candidate.element.getAttribute('role'),
+    contentEditable: candidate.element.isContentEditable,
+    score: candidate.score,
+  }))
+}
+
 function selectBestEditor() {
   document.querySelectorAll(`.${HIGHLIGHT_CLASS}`).forEach((element) => element.classList.remove(HIGHLIGHT_CLASS))
   editor = findEditorCandidates()[0]?.element ?? null
   editor?.classList.add(HIGHLIGHT_CLASS)
+  if (DEV_MODE) {
+    const candidates = editorCandidateDiagnostics()
+    debugStage('E1', `找到 ${candidates.length} 个编辑器候选`, { candidates })
+  }
   return editor
 }
 
@@ -325,33 +385,18 @@ function isCollapsedCommentTrigger(target: HTMLElement) {
   return target instanceof HTMLTextAreaElement && /(?:^|\s)ocean-ui-comments-commentform-textarea(?:\s|$)/.test(target.className)
 }
 
-async function waitForRichEditor(previous: HTMLElement, timeoutMs = 3500) {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    const candidate = findEditorCandidates().find(
-      (item) => item.element !== previous && item.element.isConnected && item.element.isContentEditable,
-    )
-    if (candidate) {
-      editor = candidate.element
-      editor.classList.add(HIGHLIGHT_CLASS)
-      return editor
-    }
-    await delay(100)
-  }
-  return null
-}
-
 async function resolveEditor() {
-  const target = editor?.isConnected ? editor : selectBestEditor()
+  const target = selectBestEditor()
   if (!target) return null
-  if (!(target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement)) return target
-  const placeholder = isCollapsedCommentTrigger(target)
-  target.click()
-  target.focus()
-  const replacement = await waitForRichEditor(target)
-  if (replacement) return replacement
-  if (placeholder || !target.isConnected || !isVisible(target)) return null
-  return target
+  if (target.isContentEditable) return target
+  debugStage('E2', '等待用户展开评论框', {
+    tag: target.tagName,
+    id: target.id,
+    className: String(target.className),
+    collapsedTrigger: isCollapsedCommentTrigger(target),
+    candidates: editorCandidateDiagnostics(),
+  })
+  return null
 }
 
 function escapeHtml(value: string) {
@@ -426,10 +471,9 @@ async function loadAsset(
   const url = packageValue.assets[block.fileName]
   if (!url) throw new Error(`Bridge 没有提供图片：${block.fileName}`)
   const response = await gmRequest<Blob>({
-    url,
-    headers: bridgeHeaders(connection),
+    url: authorizedBridgeUrl(connection, url),
     responseType: 'blob',
-    timeout: 15000,
+    timeout: 30000,
   })
   if (response.status !== 200 || !(response.response instanceof Blob)) {
     throw new Error(`读取本地图片失败：${block.fileName}`)
@@ -533,15 +577,21 @@ async function injectReady(match: { connection: BridgeConnection; package: Bridg
     renderMessage('该版本已经注入过，已跳过重复操作。', 'warning')
     return
   }
+  const target = await resolveEditor()
+  if (!target || !target.isContentEditable) {
+    renderMessage('请先点击页面里的“发表评论…”展开评论框，展开后会自动继续。', 'warning')
+    return
+  }
+  if ((target.textContent ?? '').trim()) {
+    renderMessage('当前编辑器已有内容，为避免覆盖已停止注入。', 'warning')
+    return
+  }
   await postBridge(match.connection, `/v1/packages/${encodeURIComponent(match.package.id)}/claim`, {
     hash: match.package.hash,
     clientId: clientId(),
     ...page,
   })
   try {
-    const target = await resolveEditor()
-    if (!target || !target.isContentEditable) throw new Error('未找到 kintone 富文本编辑器。')
-    if ((target.textContent ?? '').trim()) throw new Error('当前编辑器已有内容，为避免覆盖已停止注入。')
     const markup = await buildMarkup(match.connection, match.package)
     if (!target.isConnected) throw new Error('图片上传期间编辑器已被页面替换。')
     target.focus()
@@ -593,8 +643,10 @@ async function checkAndInject(manual: boolean) {
   if (!page) return
   busy = true
   renderMessage(manual ? '正在读取 Ready 草稿…' : 'Bridge 已连接，正在检查 Ready 草稿…', 'working')
+  debugStage('C1', `开始${manual ? '手动' : '自动'}检查`)
   try {
     const bridges = await discoverBridges(manual)
+    debugStage('C2', `发现流程返回 ${bridges.length} 个连接`)
     if (!bridges.length) {
       renderMessage('Bridge 离线。请先调用插件准备文章。', manual ? 'error' : 'normal')
       return
@@ -642,7 +694,7 @@ function createPanel() {
   const root = document.createElement('aside')
   root.id = ROOT_ID
   root.innerHTML = `
-    <h2>文章注入</h2>
+    <h2>文章注入${DEV_MODE ? ` <small style="color:#2563eb;font-size:11px">${DEV_LABEL}</small>` : ''}</h2>
     <div id="${ROOT_ID}-connection" data-online="false">Bridge 离线</div>
     <label class="switch-row"><span>Ready 后自动注入</span><input id="${ROOT_ID}-auto" type="checkbox"></label>
     <button id="${ROOT_ID}-manual" type="button">手动注入 Ready 文章</button>

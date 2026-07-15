@@ -120,7 +120,9 @@ This starts or reuses the Bridge. It does not create a Windows startup service.
 
 Open or refresh the exact target Space thread.
 
-- If `Ready 后自动注入` is on, the article is injected when detected.
+- If the page still shows `发表评论…`, click that native entry once so kintone
+  creates the rich editor. The Ready package is not claimed before this step.
+- If `Ready 后自动注入` is on, the article is injected when the expanded editor is detected.
 - If it is off, click `手动注入 Ready 文章`.
 - Check all text, formats, links, images, and captions.
 - Click kintone's native publish button yourself only when correct.

@@ -494,7 +494,11 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def authorized(self) -> bool:
-        return secrets.compare_digest(self.headers.get("X-KSW-Bridge-Token", ""), self.server.token)
+        token = self.headers.get("X-KSW-Bridge-Token", "")
+        if not token:
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            token = query.get("bridgeToken", [""])[0]
+        return secrets.compare_digest(token, self.server.token)
 
     def require_authorized(self) -> bool:
         if self.authorized():
@@ -508,8 +512,6 @@ class BridgeHandler(BaseHTTPRequestHandler):
         return False
 
     def read_body(self) -> dict[str, Any]:
-        if self.headers.get("Content-Type", "").split(";", 1)[0].strip() != "application/json":
-            raise BridgeError("Content-Type must be application/json")
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError as exc:
@@ -545,10 +547,6 @@ class BridgeHandler(BaseHTTPRequestHandler):
             origin = query.get("origin", [""])[0]
             space_id = query.get("spaceId", [""])[0]
             thread_id = query.get("threadId", [""])[0]
-            self.server.record_activity(
-                "ready",
-                {"origin": origin, "spaceId": space_id, "threadId": thread_id},
-            )
             matches = ready_packages(self.server.workspace, origin, space_id, thread_id)
             if not matches:
                 self.send_response(HTTPStatus.NO_CONTENT)
@@ -661,6 +659,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
             if result_status == "injected":
                 package["injectedAt"] = now
                 package["injectedPage"] = str(body.get("pageUrl", ""))
+                package.pop("lastError", None)
             else:
                 package["lastError"] = str(body.get("error", ""))[:1000]
             package.setdefault("events", []).append(
@@ -785,6 +784,9 @@ def command_retry(args: argparse.Namespace) -> int:
     package["status"] = "ready"
     package["claim"] = None
     package["updatedAt"] = now
+    package.pop("lastError", None)
+    package.pop("injectedAt", None)
+    package.pop("injectedPage", None)
     package.setdefault("events", []).append({"at": now, "type": "ready-retry"})
     atomic_write_json(path, package)
     ensure_bridge(workspace, args.port_start, args.port_end, args.idle_timeout)

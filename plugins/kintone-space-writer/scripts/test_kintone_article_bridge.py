@@ -100,18 +100,23 @@ environments:
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         base = f"http://127.0.0.1:{server.server_port}"
-        headers = {"X-KSW-Bridge-Token": "test-token"}
 
         try:
             query = urllib.parse.urlencode(
-                {"origin": "https://customer.s.cybozu.cn", "spaceId": "10", "threadId": "12"}
+                {
+                    "origin": "https://customer.s.cybozu.cn",
+                    "spaceId": "10",
+                    "threadId": "12",
+                    "bridgeToken": "test-token",
+                }
             )
-            request = urllib.request.Request(f"{base}/v1/ready?{query}", headers=headers)
+            request = urllib.request.Request(f"{base}/v1/ready?{query}")
             with urllib.request.urlopen(request) as response:
                 public = json.loads(response.read().decode("utf-8"))
             self.assertEqual(public["id"], package["id"])
 
-            asset_request = urllib.request.Request(public["assets"]["chart.png"], headers=headers)
+            asset_url = f'{public["assets"]["chart.png"]}?bridgeToken=test-token'
+            asset_request = urllib.request.Request(asset_url)
             with urllib.request.urlopen(asset_request) as response:
                 self.assertEqual(response.headers.get_content_type(), "image/png")
                 self.assertTrue(response.read().startswith(b"\x89PNG"))
@@ -126,9 +131,8 @@ environments:
                 }
             ).encode("utf-8")
             claim_request = urllib.request.Request(
-                f"{base}/v1/packages/{package['id']}/claim",
+                f"{base}/v1/packages/{package['id']}/claim?bridgeToken=test-token",
                 data=claim,
-                headers={**headers, "Content-Type": "application/json"},
                 method="POST",
             )
             with urllib.request.urlopen(claim_request) as response:
@@ -138,9 +142,8 @@ environments:
                 {"hash": package["hash"], "status": "injected", "pageUrl": "https://customer.s.cybozu.cn/k/#/space/10/thread/12"}
             ).encode("utf-8")
             result_request = urllib.request.Request(
-                f"{base}/v1/packages/{package['id']}/result",
+                f"{base}/v1/packages/{package['id']}/result?bridgeToken=test-token",
                 data=result,
-                headers={**headers, "Content-Type": "application/json"},
                 method="POST",
             )
             with urllib.request.urlopen(result_request) as response:

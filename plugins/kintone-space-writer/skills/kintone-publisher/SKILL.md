@@ -43,8 +43,11 @@ idle period. Do not create a Windows startup task or long-running service.
 
 After Ready:
 
+- if the page still shows the collapsed `发表评论…` entry, ask the user to
+  click it once. kintone requires a real user gesture to create the rich editor;
+  the package stays Ready until that editor exists;
 - with automatic injection enabled, the userscript picks it up on the exact
-  target page;
+  target page as soon as the editor is expanded;
 - with automatic injection disabled, the user clicks `手动注入 Ready 文章`;
 - the user always reviews the populated editor and clicks kintone Publish;
 - never click Publish for the user.
