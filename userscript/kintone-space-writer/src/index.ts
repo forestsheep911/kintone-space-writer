@@ -84,6 +84,8 @@ type GmResponse<T = unknown> = {
   responseText: string
 }
 
+declare const unsafeWindow: Window
+
 const ROOT_ID = 'ksw-standard-panel'
 const STYLE_ID = `${ROOT_ID}-style`
 const HIGHLIGHT_CLASS = `${ROOT_ID}-editor`
@@ -98,7 +100,7 @@ const DISCOVERY_INTERVAL_MS = 5000
 const CONNECTION_GRACE_MS = 60000
 const POLL_INTERVAL_MS = 1500
 const DEV_MODE = import.meta.env.DEV
-const DEV_LABEL = 'DEV 0.2.4'
+const DEV_LABEL = 'DEV 0.2.5'
 
 let editor: HTMLElement | null = null
 let busy = false
@@ -454,7 +456,8 @@ function textMarkup(block: TextBlock) {
 }
 
 function getRequestToken() {
-  const pageWindow = window as Window & { kintone?: { getRequestToken?: () => string } }
+  type KintonePageWindow = Window & { kintone?: { getRequestToken?: () => string } }
+  const pageWindow = (typeof unsafeWindow !== 'undefined' ? unsafeWindow : window) as KintonePageWindow
   return pageWindow.kintone?.getRequestToken?.() || document.querySelector<HTMLInputElement>('input[name="__REQUEST_TOKEN__"]')?.value || ''
 }
 
