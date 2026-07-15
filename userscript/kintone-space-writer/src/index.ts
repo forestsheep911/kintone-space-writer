@@ -95,12 +95,17 @@ const CLIENT_KEY = 'ksw-standard-client-id'
 const PORTS_KEY = 'ksw-standard-bridge-ports'
 const INJECTED_KEY = 'ksw-standard-injected-packages'
 const DISCOVERY_INTERVAL_MS = 5000
+const FULL_DISCOVERY_INTERVAL_MS = 15000
+const CONNECTION_GRACE_MS = 15000
 const POLL_INTERVAL_MS = 1500
 
 let editor: HTMLElement | null = null
 let busy = false
 let connections: BridgeConnection[] = []
 let lastDiscovery = 0
+let lastFullDiscovery = 0
+let lastConnectedAt = 0
+let discoveryInFlight: Promise<BridgeConnection[]> | null = null
 let pollTimer: number | null = null
 
 function isThreadPage() {
@@ -156,11 +161,11 @@ function gmRequest<T>(options: {
   })
 }
 
-async function probePort(port: number): Promise<BridgeConnection | null> {
+async function probePort(port: number, timeout = 900): Promise<BridgeConnection | null> {
   try {
     const response = await gmRequest<BridgeHealth>({
       url: `http://127.0.0.1:${port}/health`,
-      timeout: 450,
+      timeout,
     })
     const health = response.response
     if (response.status !== 200 || health?.service !== SERVICE_NAME || !health.token) return null
@@ -170,21 +175,57 @@ async function probePort(port: number): Promise<BridgeConnection | null> {
   }
 }
 
+async function performDiscovery(force: boolean) {
+  const now = Date.now()
+  const previousConnections = connections
+  const previousCount = connections.length
+  const cached = GM_getValue<number[]>(PORTS_KEY, [])
+  const knownPorts = [...new Set([...connections.map((connection) => connection.port), ...cached])]
+  const known = (await Promise.all(knownPorts.map((port) => probePort(port, 1200)))).filter(
+    (value): value is BridgeConnection => Boolean(value),
+  )
+  let found = known
+  const needsFullScan = force || !known.length || now - lastFullDiscovery >= FULL_DISCOVERY_INTERVAL_MS
+  if (needsFullScan) {
+    const knownSet = new Set(knownPorts)
+    const remainingPorts = Array.from(
+      { length: PORT_END - PORT_START + 1 },
+      (_, index) => PORT_START + index,
+    ).filter((port) => !knownSet.has(port))
+    const additional = (await Promise.all(remainingPorts.map((port) => probePort(port)))).filter(
+      (value): value is BridgeConnection => Boolean(value),
+    )
+    found = [...known, ...additional]
+    lastFullDiscovery = Date.now()
+  }
+  const completedAt = Date.now()
+  if (found.length) {
+    connections = found
+    lastConnectedAt = completedAt
+  } else if (previousConnections.length && completedAt - lastConnectedAt < CONNECTION_GRACE_MS) {
+    connections = previousConnections
+  } else {
+    connections = []
+  }
+  lastDiscovery = now
+  GM_setValue(PORTS_KEY, connections.map((connection) => connection.port))
+  renderConnection(connections.length)
+  if (previousCount === 0 && connections.length > 0 && autoEnabled() && !busy) {
+    window.setTimeout(() => void checkAndInject(false), 0)
+  }
+  return connections
+}
+
 async function discoverBridges(force = false) {
   const now = Date.now()
   if (!force && connections.length && now - lastDiscovery < DISCOVERY_INTERVAL_MS) return connections
-  const previousCount = connections.length
-  const cached = GM_getValue<number[]>(PORTS_KEY, [])
-  const ports = [...new Set([...cached, ...Array.from({ length: PORT_END - PORT_START + 1 }, (_, index) => PORT_START + index)])]
-  const found = (await Promise.all(ports.map(probePort))).filter((value): value is BridgeConnection => Boolean(value))
-  connections = found
-  lastDiscovery = now
-  GM_setValue(PORTS_KEY, found.map((connection) => connection.port))
-  renderConnection(found.length)
-  if (previousCount === 0 && found.length > 0 && autoEnabled() && !busy) {
-    window.setTimeout(() => void checkAndInject(false), 0)
+  if (discoveryInFlight) return discoveryInFlight
+  discoveryInFlight = performDiscovery(force)
+  try {
+    return await discoveryInFlight
+  } finally {
+    discoveryInFlight = null
   }
-  return found
 }
 
 function bridgeHeaders(connection: BridgeConnection) {
