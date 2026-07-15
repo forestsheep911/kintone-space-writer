@@ -16,7 +16,7 @@ export default defineConfig(({ mode }) => ({
           'zh-CN': 'kintone Space Writer（标准版）',
         },
         namespace: 'https://github.com/forestsheep911/codex-plugin-marketplace-2water',
-        version: '0.2.2',
+        version: '0.2.3',
         description: 'Inject Ready rich articles from the local kintone Space Writer bridge',
         author: '2water',
         match: [

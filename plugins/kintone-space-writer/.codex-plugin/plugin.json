@@ -1,6 +1,6 @@
 {
   "name": "kintone-space-writer",
-  "version": "0.2.0+codex.20260715085205",
+  "version": "0.2.0+codex.20260715090019",
   "description": "Draft, prepare, and hand rich articles to kintone Space through a local Ready bridge.",
   "author": {
     "name": "Local developer"

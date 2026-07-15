@@ -95,8 +95,8 @@ const CLIENT_KEY = 'ksw-standard-client-id'
 const PORTS_KEY = 'ksw-standard-bridge-ports'
 const INJECTED_KEY = 'ksw-standard-injected-packages'
 const DISCOVERY_INTERVAL_MS = 5000
-const FULL_DISCOVERY_INTERVAL_MS = 15000
-const CONNECTION_GRACE_MS = 15000
+const FULL_DISCOVERY_INTERVAL_MS = 30000
+const CONNECTION_GRACE_MS = 60000
 const POLL_INTERVAL_MS = 1500
 
 let editor: HTMLElement | null = null
@@ -244,8 +244,7 @@ async function getReady(connection: BridgeConnection, target: PageTarget): Promi
   return response.response as BridgePackage
 }
 
-async function findReady(target: PageTarget) {
-  const bridges = await discoverBridges()
+async function findReady(target: PageTarget, bridges: BridgeConnection[]) {
   const matches: Array<{ connection: BridgeConnection; package: BridgePackage }> = []
   for (const connection of bridges) {
     const packageValue = await getReady(connection, target)
@@ -600,7 +599,7 @@ async function checkAndInject(manual: boolean) {
       renderMessage('Bridge 离线。请先调用插件准备文章。', manual ? 'error' : 'normal')
       return
     }
-    const match = await findReady(page)
+    const match = await findReady(page, bridges)
     if (!match) {
       renderMessage(manual ? '当前目标没有 Ready 草稿。' : '等待当前目标的 Ready 草稿。', manual ? 'warning' : 'normal')
       return

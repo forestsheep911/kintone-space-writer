@@ -15,6 +15,7 @@ import re
 import secrets
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -85,6 +86,10 @@ def packages_dir(workspace: Path) -> Path:
 
 def bridge_state_path(workspace: Path) -> Path:
     return state_dir(workspace) / "bridge.json"
+
+
+def bridge_activity_path(workspace: Path) -> Path:
+    return state_dir(workspace) / "bridge-activity.json"
 
 
 def package_path(workspace: Path, package_id: str) -> Path:
@@ -459,6 +464,18 @@ class BridgeServer(ThreadingHTTPServer):
         self.instance_id = instance_id
         self.token = token
         self.last_activity = time.monotonic()
+        self.activity_lock = threading.Lock()
+        self.activity: dict[str, Any] = {"counts": {}, "lastByRoute": {}}
+
+    def record_activity(self, route: str, detail: dict[str, Any] | None = None) -> None:
+        now = utc_now()
+        with self.activity_lock:
+            counts = self.activity.setdefault("counts", {})
+            counts[route] = int(counts.get(route, 0)) + 1
+            event = {"at": now, "route": route, **(detail or {})}
+            self.activity["last"] = event
+            self.activity.setdefault("lastByRoute", {})[route] = event
+            atomic_write_json(bridge_activity_path(self.workspace), self.activity)
 
 
 class BridgeHandler(BaseHTTPRequestHandler):
@@ -483,6 +500,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
         if self.authorized():
             self.server.last_activity = time.monotonic()
             return True
+        self.server.record_activity(
+            "unauthorized",
+            {"path": urllib.parse.urlsplit(self.path).path},
+        )
         self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
         return False
 
@@ -524,6 +545,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
             origin = query.get("origin", [""])[0]
             space_id = query.get("spaceId", [""])[0]
             thread_id = query.get("threadId", [""])[0]
+            self.server.record_activity(
+                "ready",
+                {"origin": origin, "spaceId": space_id, "threadId": thread_id},
+            )
             matches = ready_packages(self.server.workspace, origin, space_id, thread_id)
             if not matches:
                 self.send_response(HTTPStatus.NO_CONTENT)
@@ -542,6 +567,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         if asset_match:
             package_id = urllib.parse.unquote(asset_match.group(1))
             asset_name = urllib.parse.unquote(asset_match.group(2))
+            self.server.record_activity("asset", {"packageId": package_id, "asset": asset_name})
             try:
                 package = read_json(package_path(self.server.workspace, package_id))
                 relative = package.get("_assetPaths", {}).get(asset_name)
@@ -585,6 +611,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         try:
             package_id = urllib.parse.unquote(match.group(1))
             action = match.group(2)
+            self.server.record_activity(action, {"packageId": package_id})
             body = self.read_body()
             path = package_path(self.server.workspace, package_id)
             package = refresh_expired_claim(path, read_json(path))
