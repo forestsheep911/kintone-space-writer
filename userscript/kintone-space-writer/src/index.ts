@@ -130,16 +130,28 @@ function gmRequest<T>(options: {
   timeout?: number
 }): Promise<GmResponse<T>> {
   return new Promise((resolve, reject) => {
+    let settled = false
+    const timeout = options.timeout ?? 1500
+    const finish = (action: () => void) => {
+      if (settled) return
+      settled = true
+      window.clearTimeout(fallbackTimer)
+      action()
+    }
+    const fallbackTimer = window.setTimeout(
+      () => finish(() => reject(new Error('本地 Bridge 请求超时'))),
+      timeout + 500,
+    )
     GM_xmlhttpRequest({
       method: options.method ?? 'GET',
       url: options.url,
       headers: options.headers,
       data: options.data,
       responseType: options.responseType ?? 'json',
-      timeout: options.timeout ?? 1500,
-      onload: (response) => resolve(response as GmResponse<T>),
-      onerror: () => reject(new Error('本地 Bridge 请求失败')),
-      ontimeout: () => reject(new Error('本地 Bridge 请求超时')),
+      timeout,
+      onload: (response) => finish(() => resolve(response as GmResponse<T>)),
+      onerror: () => finish(() => reject(new Error('本地 Bridge 请求失败'))),
+      ontimeout: () => finish(() => reject(new Error('本地 Bridge 请求超时'))),
     })
   })
 }
@@ -161,6 +173,7 @@ async function probePort(port: number): Promise<BridgeConnection | null> {
 async function discoverBridges(force = false) {
   const now = Date.now()
   if (!force && connections.length && now - lastDiscovery < DISCOVERY_INTERVAL_MS) return connections
+  const previousCount = connections.length
   const cached = GM_getValue<number[]>(PORTS_KEY, [])
   const ports = [...new Set([...cached, ...Array.from({ length: PORT_END - PORT_START + 1 }, (_, index) => PORT_START + index)])]
   const found = (await Promise.all(ports.map(probePort))).filter((value): value is BridgeConnection => Boolean(value))
@@ -168,6 +181,9 @@ async function discoverBridges(force = false) {
   lastDiscovery = now
   GM_setValue(PORTS_KEY, found.map((connection) => connection.port))
   renderConnection(found.length)
+  if (previousCount === 0 && found.length > 0 && autoEnabled() && !busy) {
+    window.setTimeout(() => void checkAndInject(false), 0)
+  }
   return found
 }
 
@@ -536,6 +552,7 @@ async function checkAndInject(manual: boolean) {
   const page = currentTarget()
   if (!page) return
   busy = true
+  renderMessage(manual ? '正在读取 Ready 草稿…' : 'Bridge 已连接，正在检查 Ready 草稿…', 'working')
   try {
     const bridges = await discoverBridges(manual)
     if (!bridges.length) {
@@ -606,6 +623,11 @@ function createPanel() {
   }
   document.body.append(root)
   void discoverBridges(true)
+    .then(() => {
+      if (autoEnabled()) void checkAndInject(false)
+      else renderMessage('自动注入已关闭。', 'normal')
+    })
+    .catch((error) => renderMessage(error instanceof Error ? error.message : String(error), 'error'))
 }
 
 function maintainPage() {
@@ -629,4 +651,9 @@ observer.observe(document.documentElement, { childList: true, subtree: true })
 window.addEventListener('hashchange', maintainPage)
 window.addEventListener('popstate', maintainPage)
 maintainPage()
-if (pollTimer === null) pollTimer = window.setInterval(() => void poll(), POLL_INTERVAL_MS)
+if (pollTimer === null) {
+  pollTimer = window.setInterval(
+    () => void poll().catch((error) => renderMessage(error instanceof Error ? error.message : String(error), 'error')),
+    POLL_INTERVAL_MS,
+  )
+}
