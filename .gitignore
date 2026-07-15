@@ -5,6 +5,7 @@
 !.env.*.example
 __pycache__/
 *.py[cod]
+node_modules/
 outputs/
 local-runs/
 dist/

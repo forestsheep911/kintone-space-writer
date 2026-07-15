@@ -7,7 +7,8 @@ description: Draft, revise, and prepare articles for kintone Space. Use when Cod
 
 ## Purpose
 
-Help Codex produce articles intended for kintone Space. This skill is intentionally conservative until project references are added.
+Help Codex produce articles intended for kintone Space, including ordered rich
+article packages for the browser-side Ready workflow.
 
 ## Reference Boundary
 
@@ -53,18 +54,24 @@ Never put credentials in the workspace profile. kintone secrets and target IDs b
 3. Create a concise outline before drafting when the topic is complex.
 4. Draft in a practical, reader-focused style suitable for an internal or community knowledge space.
 5. Revise for clarity, source faithfulness, actionability, and anti-AI-tone quality.
-6. Prepare a final article body plus a short handoff note listing assumptions, missing references, and suggested images or attachments.
+6. Prepare a final article body plus a short handoff note listing assumptions,
+   missing references, and image placement.
+7. When the user wants browser handoff, create `kintone-rich-article.v1` JSON
+   with text and image blocks in publication order, then use the
+   `kintone-publisher` skill to validate the target and mark it Ready.
 
 ## Publishing Constraints
 
-The initial publishing route is kintone Space thread comment only.
+The publishing route is an existing kintone Space thread comment only.
 
 - Do not update thread body content.
 - Do not create a thread unless the user explicitly asks and required Space capability is confirmed.
-- Load kintone connection settings from the article workspace `.env`, not from the plugin repository or shared plugin knowledge.
-- Start with username/password authentication.
-- Prepare image illustrations as comment attachments: upload files first, collect file keys, then include them in `comment.files`.
-- Do not promise inline image placement inside the comment body. Space comment payload order is mentions, text, then files.
+- The standard browser route uses target IDs from workspace
+  `kintone-targets.yaml`; it does not require API credentials.
+- The standard route supports inline images because the Store userscript fills
+  the authenticated Web editor. It never clicks Publish.
+- Keep `.env` username/password settings only for the REST fallback.
+- In the REST fallback, images remain trailing attachments and text is plain.
 
 ## Drafting Rules
 
@@ -75,8 +82,10 @@ The initial publishing route is kintone Space thread comment only.
 - Use headings and short paragraphs for scanability.
 - Keep formatting portable until exact kintone Space constraints are known.
 - Do not optimize the article as a WeChat Official Account post unless the user explicitly asks for a WeChat derivative.
-- For kintone Space comment output, assume plain text only. Use visible characters, spacing, numbering, and bullets for structure.
-- Use bare URLs for references. Do not rely on Markdown links, Markdown bold, highlight markers, or heading syntax.
+- For rich browser output, express structure in article JSON rather than
+  Markdown and use the schema's formatting fields.
+- For the REST fallback, assume plain text only and use visible characters,
+  spacing, numbering, bullets, and bare URLs.
 - Emoji can be used sparingly as plain-text markers. Smoke tests showed common emoji render in kintone Web UI, but do not make emoji carry essential meaning.
 
 ## Plain Text Layout Pattern
@@ -111,12 +120,6 @@ When preparing an article, provide:
 - optional image or attachment suggestions
 - publishing notes and unresolved questions
 
-## Pending Project References
-
-This plugin still needs the user's reference material for:
-
-- house style
-- article templates
-- kintone Space formatting rules
-- publishing workflow
-- automation requirements
+For rich handoff, also save a versioned JSON file such as
+`drafts/article-v001.rich.json`. Do not mark it Ready until its target and every
+referenced local image have been validated.

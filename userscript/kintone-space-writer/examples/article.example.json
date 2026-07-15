@@ -1,0 +1,40 @@
+{
+  "schema": "kintone-rich-article.v1",
+  "id": "rich-article-example",
+  "version": "v001",
+  "title": "富文章标准版示例",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "一篇可以混排的 Space 文章",
+      "align": "center"
+    },
+    {
+      "type": "paragraph",
+      "text": "这段文字用于确认标题、正文和图片能否按顺序进入网页编辑器。",
+      "bold": true,
+      "color": "#1565c0"
+    },
+    {
+      "type": "bulletList",
+      "items": ["第一条要点", "第二条要点", "第三条要点"]
+    },
+    {
+      "type": "image",
+      "fileName": "cover.png",
+      "alt": "示例封面",
+      "caption": "图 1：正文中的示例图片",
+      "width": 500
+    },
+    {
+      "type": "quote",
+      "text": "图片之后还有文字，才算验证了真正的图文混排。"
+    },
+    {
+      "type": "paragraph",
+      "text": "https://example.com",
+      "link": "https://example.com"
+    }
+  ]
+}

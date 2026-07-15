@@ -2,11 +2,27 @@
 
 ## Publishing Model
 
-V0.1 publishes to an existing kintone Space thread by adding a comment.
+V0.2 has two routes for comments on an existing kintone Space thread:
 
-The plugin must not update thread body content in the initial route. Thread-body update APIs are intentionally out of scope for v0.1 because the user wants comment-only publishing.
+1. Standard: an on-demand loopback Bridge hands an ordered rich article to a
+   Store userscript, which fills the native Web editor. The user publishes.
+2. Fallback: the public REST API posts plain text plus trailing attachments.
 
-## kintone API Shape
+Neither route updates a Space/thread body or creates a thread.
+
+## Standard Ready Bridge
+
+The Bridge binds to `127.0.0.1` and selects the first free port from 8787–8807.
+Plugin calls start it idempotently; it is not registered as a Windows service
+and exits after an idle timeout. Its workspace-local queue is ignored by Git.
+
+Every package is bound to exact browser origins, Space ID, and Thread ID. The
+userscript must claim it before uploading images, refuses non-empty editors,
+records injected/failed results, and never activates Publish. Rich images use
+kintone's internal Web upload route and native temporary image DOM, so the REST
+fallback remains important if kintone changes that behavior.
+
+## REST Fallback API Shape
 
 Primary endpoint:
 
@@ -80,13 +96,14 @@ The `anti-ai-tone` skill adapts ideas from `hardikpandya/stop-slop` under the MI
 
 Article illustrations use the kintone file upload API first. The returned `fileKey` values are then attached in `comment.files`.
 
-V0.1 limits:
+REST fallback limits:
 
 - maximum 5 files per comment
 - optional image display width, 100 to 750
 - no inline placement between paragraphs
 
-If a future version requires true text-image interleaving, it should be treated as a separate route, likely browser automation or a non-comment body-editing flow, with its own risk gate.
+The standard Ready bridge provides text-image interleaving through the native
+Web editor.
 
 ## Environment
 
@@ -101,6 +118,9 @@ environments:
   test:
     label: "Test environment"
     baseUrl: "https://test-example.cybozu.com"
+    origins:
+      - "https://test-example.cybozu.com"
+      - "https://test-example.s.cybozu.com"
     username: "writer@example.com"
     passwordEnv: "KINTONE_TEST_PASSWORD"
 

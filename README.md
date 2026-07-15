@@ -1,6 +1,7 @@
 # kintone-space-writer
 
-Codex plugin project for drafting, reviewing, and posting article-style comments to kintone Space threads.
+Codex plugin project for drafting, reviewing, and staging rich article-style
+comments in kintone Space threads.
 
 The plugin is designed for article workspaces: each article or topic can keep its own drafts, local publishing configuration, assets, and publish records while reusing the same Codex plugin.
 
@@ -8,24 +9,28 @@ The plugin is designed for article workspaces: each article or topic can keep it
 
 - Draft and revise kintone Space articles.
 - Review drafts for AI-flavored tone before publication.
-- Prepare plain-text article bodies that work inside kintone Space comments.
-- Upload optional image attachments and post comments to existing Space threads.
+- Prepare ordered rich-text and inline-image article packages.
+- Start an on-demand local Bridge and hand Ready packages to a Store userscript.
+- Preserve plain-text REST posting with trailing attachments as a fallback.
 - Keep local publish records for comment IDs, target aliases, draft IDs, hashes, and attachments.
 - Support multiple kintone environments, Spaces, and threads through readable YAML target aliases.
 
 ## Current Scope
 
-V0.1 publishes only by adding a comment to an existing kintone Space thread.
+V0.2 targets only comments on existing kintone Space threads. The standard
+route fills the native rich editor and leaves final publication to the user.
 
 It does not:
 
 - update Space body content
 - update thread body content
 - create new threads
-- place images inline between paragraphs
 - manage kintone comment deletion
 
-Images are uploaded as kintone file attachments and then attached after the comment text.
+The standard Store source lives in
+[`userscript/kintone-space-writer`](userscript/kintone-space-writer). See
+[`docs/rich-editor-bridge.md`](docs/rich-editor-bridge.md) for the Ready protocol,
+article schema, target rules, and installation path.
 
 ## Repository Layout
 
@@ -34,6 +39,7 @@ kintone-space-writer/
   .agents/plugins/marketplace.json
   docs/
     architecture.md
+    rich-editor-bridge.md
     usage.md
   plugins/kintone-space-writer/
     .codex-plugin/plugin.json
@@ -45,6 +51,7 @@ kintone-space-writer/
       anti-ai-tone/
       kintone-publisher/
       kintone-space-writer/
+  userscript/kintone-space-writer/
 ```
 
 The installable plugin source is:
@@ -59,7 +66,8 @@ This matches the `git-subdir` publishing style used by the 2water Codex plugin m
 
 `kintone-space-writer`
 
-Drafts and revises articles for kintone Space. It handles article structure, reader focus, plain-text layout, source faithfulness, and workspace profile usage.
+Drafts and revises articles for kintone Space. It handles article structure,
+reader focus, rich block layout, source faithfulness, and workspace profiles.
 
 `anti-ai-tone`
 
@@ -67,7 +75,8 @@ Reviews prose for formulaic AI tone. It reduces generic openers, repeated mirror
 
 `kintone-publisher`
 
-Validates local publishing settings, uploads files, posts Space thread comments, and writes local publish records.
+Stages rich articles through the Ready bridge, or uses the REST fallback and
+writes local publish records.
 
 ## New Article Workspace Setup
 
@@ -87,8 +96,8 @@ This creates:
 kintone-targets.yaml
 ```
 
-Use `.env` only for secrets and optional default target selection.
-Use `kintone-targets.yaml` for kintone domains, Spaces, threads, and thread aliases.
+Use `.env` only for REST fallback secrets and optional default target selection.
+Use `kintone-targets.yaml` for browser origins, Spaces, threads, and aliases.
 
 ## Environment File
 
@@ -129,6 +138,9 @@ environments:
   test:
     label: "Test environment"
     baseUrl: "https://test-example.cybozu.com"
+    origins:
+      - "https://test-example.cybozu.com"
+      - "https://test-example.s.cybozu.com"
     username: "writer@example.com"
     passwordEnv: "KINTONE_TEST_PASSWORD"
 
@@ -154,21 +166,22 @@ python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target co
 
 ## Drafting Workflow
 
-Recommended article workflow:
+Recommended rich-article workflow:
 
 1. Create or open an article workspace.
 2. Add source notes, links, drafts, and assets.
 3. Draft with the `kintone-space-writer` skill.
 4. Review the draft with `anti-ai-tone`.
-5. Prepare a plain-text comment body.
-6. Run publisher preflight for the target alias.
-7. Post to a test target first when available.
-8. Ask the user to inspect the kintone Web UI rendering.
-9. Post to the official target only after confirmation.
+5. Save an ordered `kintone-rich-article.v1` JSON plus local images.
+6. Confirm the exact target origin, Space ID, and Thread ID.
+7. Mark the article Ready; this starts or reuses the local Bridge.
+8. Let the Store userscript inject automatically, or click its manual button.
+9. Inspect the native editor and click Publish manually if correct.
 
-## Plain-Text Comment Format
+## REST Fallback
 
-kintone Space comment text should be treated as plain text.
+The preserved REST route treats comment text as plain text and places up to five
+attachments after it.
 
 Prefer character-based structure:
 
@@ -271,16 +284,19 @@ Deckit may be used as a reference for plugin repository layout, local developmen
 
 ## Development
 
-Validate the plugin:
+Build the Store userscript and validate the plugin:
 
 ```powershell
-python C:/Users/bxu/.GZ9EE915VU4opI0l1i0M6123/skills/.system/plugin-creator/scripts/validate_plugin.py ./plugins/kintone-space-writer
+cd userscript/kintone-space-writer
+pnpm build
+cd ../..
+python <CODEX_HOME>/skills/.system/plugin-creator/scripts/validate_plugin.py ./plugins/kintone-space-writer
 ```
 
 Check Python syntax:
 
 ```powershell
-python -m py_compile plugins/kintone-space-writer/scripts/kintone_space_comment.py
+python -m py_compile plugins/kintone-space-writer/scripts/kintone_space_comment.py plugins/kintone-space-writer/scripts/kintone_article_bridge.py
 ```
 
 ## Marketplace Target

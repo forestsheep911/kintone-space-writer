@@ -1,6 +1,6 @@
 # Usage Guide
 
-This guide describes the normal article workflow for `kintone-space-writer`.
+This guide describes the standard rich-article workflow and the preserved REST fallback.
 
 ## 1. Create A Workspace
 
@@ -14,6 +14,7 @@ my-article-workspace/
   .env
   kintone-targets.yaml
   drafts/
+    article-v001.rich.json
   assets/
   metadata/
     publish-log/
@@ -34,7 +35,7 @@ If the plugin path is different in your workspace, adjust the path to `kintone_s
 
 ## 3. Fill `.env`
 
-`.env` keeps secrets only.
+`.env` keeps secrets only and is required only by the REST fallback.
 
 Example:
 
@@ -63,6 +64,9 @@ environments:
   test:
     label: "Test environment"
     baseUrl: "https://test-example.cybozu.com"
+    origins:
+      - "https://test-example.cybozu.com"
+      - "https://test-example.s.cybozu.com"
     username: "writer@example.com"
     passwordEnv: "KINTONE_TEST_PASSWORD"
 
@@ -79,7 +83,53 @@ environments:
             imageWidth: 600
 ```
 
-## 5. Run Preflight
+For rich injection, every entry in `origins` is an exact browser origin allowed
+to receive the target. If the target is missing, give the plugin the full Space
+thread URL; it must confirm and save the origin, Space ID, and Thread ID before
+marking a draft Ready.
+
+## 5. Install The Store Userscript
+
+Install this file in Tampermonkey:
+
+```text
+plugins/kintone-space-writer/assets/userscript/kintone-space-writer.user.js
+```
+
+The panel appears only on matching Space thread pages.
+
+## 6. Draft The Rich Article
+
+Use the `kintone-space-writer` skill to draft or revise the article, then apply
+`anti-ai-tone`. Save ordered text and image blocks as
+`drafts/article-v001.rich.json`; keep referenced image files below `assets/`.
+
+See [rich-editor-bridge.md](rich-editor-bridge.md) for the schema and example.
+
+## 7. Mark It Ready
+
+From the article workspace:
+
+```powershell
+python <plugin>/scripts/kintone_article_bridge.py mark-ready --workspace . --article drafts/article-v001.rich.json --assets-root assets --targets kintone-targets.yaml --target test-news
+```
+
+This starts or reuses the Bridge. It does not create a Windows startup service.
+
+## 8. Inject And Review
+
+Open or refresh the exact target Space thread.
+
+- If `Ready 后自动注入` is on, the article is injected when detected.
+- If it is off, click `手动注入 Ready 文章`.
+- Check all text, formats, links, images, and captions.
+- Click kintone's native publish button yourself only when correct.
+
+## REST Fallback
+
+The remaining sections apply only when the rich Web route is unavailable.
+
+### Run Preflight
 
 Run preflight before any real post:
 
@@ -103,13 +153,7 @@ Expected output is a non-secret summary:
 
 If a required file or value is missing, the script prints setup instructions instead of a raw traceback.
 
-## 6. Draft The Article
-
-Use the `kintone-space-writer` skill to draft or revise the article.
-
-Before final handoff, apply the `anti-ai-tone` skill. It should reduce formulaic phrasing while keeping the article useful and source-faithful.
-
-## 7. Dry Run
+### Dry Run
 
 Dry-run the comment payload:
 
@@ -119,7 +163,7 @@ python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target te
 
 The dry run prints the comment payload without calling the kintone API.
 
-## 8. Post To Test
+### Post To Test
 
 Post to a test target first when available:
 
@@ -129,7 +173,7 @@ python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target te
 
 Ask the user to inspect the kintone Web UI after the test comment is created.
 
-## 9. Post To The Official Target
+### Post To The Official Target
 
 After the user confirms the test rendering and content:
 
@@ -139,7 +183,7 @@ python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target co
 
 Test and production comments receive separate kintone comment IDs.
 
-## 10. Mark Local Records
+### Mark Local Records
 
 If the user deletes a wrong test comment manually in kintone, mark the local record:
 

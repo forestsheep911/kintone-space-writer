@@ -1,6 +1,6 @@
 ---
 name: kintone-publisher
-description: Prepare or post kintone Space thread comments from workspace-local environment settings. Use when Codex needs to validate kintone comment publishing settings, upload article images as comment attachments, build a comment payload, or post a comment to an existing Space thread.
+description: Prepare, stage, or post kintone Space thread comments from workspace-local settings. Use when Codex needs to hand a rich article with inline images to the local Ready bridge, validate a target, or use the preserved REST fallback.
 ---
 
 # Kintone Publisher
@@ -10,6 +10,57 @@ description: Prepare or post kintone Space thread comments from workspace-local 
 Publish only by adding a comment to an existing kintone Space thread.
 
 Do not update Space body content, thread body content, or create threads unless the user explicitly changes the route.
+
+Use the rich Ready bridge as the standard route. It fills the browser editor but
+does not publish. Preserve the REST route below as the fallback for plain text
+and trailing attachments.
+
+## Standard Rich-Article Flow
+
+The Store userscript consumes `kintone-rich-article.v1` JSON from the local
+Bridge. Resolve `../../scripts/kintone_article_bridge.py` from this skill's
+directory; do not assume the plugin source is inside the article workspace.
+
+Before marking a draft Ready:
+
+1. Confirm the destination alias in workspace `kintone-targets.yaml`.
+2. If it is absent, ask the user for the full kintone Space thread URL. Parse and
+   confirm its exact browser origin, Space ID, and Thread ID. Ask for any other
+   origin the same target is actually opened through, especially `.s.cybozu.cn`
+   or `.s.kintone.com`, then save the confirmed values. Never guess a target.
+3. Build an ordered article JSON. Each image block must name a file below the
+   selected assets root.
+4. Start or reuse the Bridge and mark the package Ready in one operation:
+
+```powershell
+python <plugin>/scripts/kintone_article_bridge.py mark-ready --workspace . --article drafts/article-v001.rich.json --assets-root assets --targets kintone-targets.yaml --target test-news
+```
+
+`mark-ready` is idempotent. A new version of the same article supersedes its old
+Ready package; the same unchanged version is not queued twice. The Bridge binds
+only to `127.0.0.1`, chooses an available port in 8787–8807, and exits after an
+idle period. Do not create a Windows startup task or long-running service.
+
+After Ready:
+
+- with automatic injection enabled, the userscript picks it up on the exact
+  target page;
+- with automatic injection disabled, the user clicks `手动注入 Ready 文章`;
+- the user always reviews the populated editor and clicks kintone Publish;
+- never click Publish for the user.
+
+Useful recovery commands:
+
+```powershell
+python <plugin>/scripts/kintone_article_bridge.py list --workspace .
+python <plugin>/scripts/kintone_article_bridge.py retry --workspace . --package-id <id>
+```
+
+The article schema supports ordered `heading`, `paragraph`, `quote`,
+`bulletList`, `numberList`, `divider`, and `image` blocks. Text blocks may use
+`bold`, `italic`, `underline`, `link`, hex `color`, hex `backgroundColor`,
+`fontSize` 1–7, and `align`. Image blocks use `fileName`, optional `alt`,
+`caption`, and `width` 100–750.
 
 ## Environment
 
@@ -31,6 +82,7 @@ YAML environment fields:
 
 - `label`
 - `baseUrl`
+- `origins` (exact browser origins allowed to receive Ready packages)
 - `username`
 - `passwordEnv`
 
@@ -75,7 +127,8 @@ Test and production posts have separate kintone comment IDs.
 
 For images, use the file upload API first, then attach returned file keys to `comment.files`.
 
-The comment API orders content as mentions, text, then files. Do not claim that this route can place images between article paragraphs. If users need true inline placement, record it as a future non-v0.1 route.
+The REST comment API orders content as mentions, text, then files. It cannot
+place images between article paragraphs; use the standard Ready bridge for that.
 
 ## Comment Text Formatting
 

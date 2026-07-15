@@ -7,6 +7,11 @@ environments:
   test:
     label: "Test environment"
     baseUrl: "https://test-example.cybozu.com"
+    # Browser origins allowed to receive a Ready rich article. List every
+    # normal/SecureAccess origin the user actually opens; matching is exact.
+    origins:
+      - "https://test-example.cybozu.com"
+      - "https://test-example.s.cybozu.com"
     username: "writer@example.com"
     passwordEnv: "KINTONE_TEST_PASSWORD"
 
@@ -25,6 +30,8 @@ environments:
   env1:
     label: "Environment 1"
     baseUrl: "https://env1-example.cybozu.com"
+    origins:
+      - "https://env1-example.cybozu.com"
     username: "writer@example.com"
     passwordEnv: "KINTONE_ENV1_PASSWORD"
 
@@ -49,6 +56,8 @@ environments:
   env2:
     label: "Environment 2"
     baseUrl: "https://env2-example.cybozu.com"
+    origins:
+      - "https://env2-example.cybozu.com"
     username: "writer@example.com"
     passwordEnv: "KINTONE_ENV2_PASSWORD"
 

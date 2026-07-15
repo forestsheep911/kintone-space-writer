@@ -1,22 +1,23 @@
 {
   "name": "kintone-space-writer",
-  "version": "0.1.0",
-  "description": "Draft and refine articles intended for kintone Space.",
+  "version": "0.2.0+codex.20260715083121",
+  "description": "Draft, prepare, and hand rich articles to kintone Space through a local Ready bridge.",
   "author": {
     "name": "Local developer"
   },
   "skills": "./skills/",
   "interface": {
     "displayName": "Kintone Space Writer",
-    "shortDescription": "Write kintone Space articles with Codex.",
-    "longDescription": "Provides writing workflow guidance for drafting, revising, and preparing articles for kintone Space. Reference material can be added as the project evolves.",
+    "shortDescription": "Write and stage rich kintone Space articles.",
+    "longDescription": "Drafts and refines kintone Space articles, preserves the REST fallback, and stages rich text with inline images for browser-side review through a local Ready bridge.",
     "developerName": "Local developer",
     "category": "Productivity",
     "capabilities": [
       "writing",
       "editing",
       "content-preparation",
-      "publishing"
+      "publishing",
+      "rich-text-bridge"
     ],
     "defaultPrompt": "Help me draft a kintone Space article."
   }
