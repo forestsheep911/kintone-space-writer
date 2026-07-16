@@ -94,6 +94,16 @@ environments:
         self.assertEqual(stored_first["status"], "superseded")
         self.assertEqual(second["status"], "ready")
 
+    def test_new_revision_remains_ready_after_previous_revision_is_injected(self) -> None:
+        first = self.create_package("v1")
+        first["status"] = "injected"
+        bridge.atomic_write_json(bridge.package_path(self.workspace, first["id"]), first)
+
+        second = self.create_package("v2", "新版正文")
+        ready = bridge.ready_packages(self.workspace, "https://customer.cybozu.cn", "10", "12")
+
+        self.assertEqual([package["id"] for package in ready], [second["id"]])
+
     def test_http_ready_claim_asset_and_result_flow(self) -> None:
         package = self.create_package("v1")
         server = bridge.BridgeServer(("127.0.0.1", 0), self.workspace, "test-instance", "test-token")

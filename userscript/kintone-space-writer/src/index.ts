@@ -1,6 +1,12 @@
 import { GM_getValue, GM_setValue, GM_xmlhttpRequest } from '$'
 
 import { isReadyCheckDue, nextDiscoveryDelay } from './bridge-polling'
+import {
+  canWriteEditor,
+  sessionEnds,
+  sessionKey,
+  type ActiveEditorSession,
+} from './editor-session'
 
 type TextBlock = {
   type: 'heading' | 'paragraph' | 'quote' | 'bulletList' | 'numberList' | 'divider'
@@ -96,7 +102,7 @@ const PORT_END = 8807
 const AUTO_KEY = 'ksw-standard-auto-inject'
 const CLIENT_KEY = 'ksw-standard-client-id'
 const PORTS_KEY = 'ksw-standard-bridge-ports'
-const INJECTED_KEY = 'ksw-standard-injected-packages'
+const ACTIVE_SESSION_KEY = 'ksw-standard-active-editor-session'
 const DISCOVERY_INTERVAL_MS = 5000
 const CONNECTION_GRACE_MS = 60000
 const POLL_INTERVAL_MS = 1500
@@ -553,15 +559,26 @@ async function buildMarkup(connection: BridgeConnection, packageValue: BridgePac
   return chunks.join('')
 }
 
-function injectedPackages() {
-  return GM_getValue<Record<string, string>>(INJECTED_KEY, {})
+function activeEditorSession() {
+  return GM_getValue<ActiveEditorSession | null>(ACTIVE_SESSION_KEY, null)
 }
 
-function rememberInjected(packageValue: BridgePackage) {
-  const values = injectedPackages()
-  values[packageValue.id] = packageValue.hash
-  const recent = Object.entries(values).slice(-100)
-  GM_setValue(INJECTED_KEY, Object.fromEntries(recent))
+function saveActiveEditorSession(session: ActiveEditorSession) {
+  GM_setValue(ACTIVE_SESSION_KEY, session)
+}
+
+function clearActiveEditorSession() {
+  GM_setValue(ACTIVE_SESSION_KEY, null)
+}
+
+function articleId(packageValue: BridgePackage) {
+  const value = String(packageValue.article.id ?? '').trim()
+  if (!value) throw new Error('Ready 草稿缺少稳定的 article.id，无法开始本地编辑会话。')
+  return value
+}
+
+function editorHasContent(target: HTMLElement) {
+  return Boolean((target.textContent ?? '').trim() || target.querySelector('img, [data-file]'))
 }
 
 async function sendResult(
@@ -581,19 +598,22 @@ async function sendResult(
 async function injectReady(match: { connection: BridgeConnection; package: BridgePackage }) {
   const page = currentTarget()
   if (!page || !targetMatches(match.package.target, page)) throw new Error('Ready 草稿目标与当前页面不一致。')
-  const remembered = injectedPackages()[match.package.id]
-  if (remembered === match.package.hash) {
-    await sendResult(match.connection, match.package, 'injected')
-    renderMessage('该版本已经注入过，已跳过重复操作。', 'warning')
-    return
-  }
+  const currentArticleId = articleId(match.package)
+  const key = sessionKey(page, currentArticleId)
+  const activeSession = activeEditorSession()
   const target = await resolveEditor()
   if (!target || !target.isContentEditable) {
     renderMessage('请先点击页面里的“发表评论…”展开评论框，展开后会自动继续。', 'warning')
     return
   }
-  if ((target.textContent ?? '').trim()) {
-    renderMessage('当前编辑器已有内容，为避免覆盖已停止注入。', 'warning')
+  const hasContent = editorHasContent(target)
+  if (!canWriteEditor(activeSession, key, match.package.hash, hasContent)) {
+    if (activeSession?.key === key && activeSession.hash === match.package.hash) {
+      await sendResult(match.connection, match.package, 'injected')
+      renderMessage('本地最新版本已经同步到编辑器。', 'normal')
+      return
+    }
+    renderMessage('当前编辑器不属于这篇本地文章；请清空后再开始新的编辑会话。', 'warning')
     return
   }
   await postBridge(match.connection, `/v1/packages/${encodeURIComponent(match.package.id)}/claim`, {
@@ -605,12 +625,13 @@ async function injectReady(match: { connection: BridgeConnection; package: Bridg
     const markup = await buildMarkup(match.connection, match.package)
     if (!target.isConnected) throw new Error('图片上传期间编辑器已被页面替换。')
     target.focus()
+    document.execCommand('selectAll', false)
     if (!document.execCommand('insertHTML', false, markup)) throw new Error('浏览器拒绝写入富文本编辑器。')
     target.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }))
     target.dispatchEvent(new Event('change', { bubbles: true }))
-    rememberInjected(match.package)
+    saveActiveEditorSession({ key, articleId: currentArticleId, hash: match.package.hash })
     await sendResult(match.connection, match.package, 'injected')
-    renderMessage(`“${match.package.article.title ?? match.package.id}”已注入，请检查后手动发表。`, 'success')
+    renderMessage(`“${match.package.article.title ?? match.package.id}”已同步；本地新版本会继续覆盖此编辑器。`, 'success')
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     try {
@@ -741,9 +762,17 @@ function maintainPage() {
   }
 }
 
+function clearSessionAfterPublication() {
+  const session = activeEditorSession()
+  if (!session) return
+  const richEditorExists = findEditorCandidates().some((candidate) => candidate.element.isContentEditable)
+  if (sessionEnds(richEditorExists)) clearActiveEditorSession()
+}
+
 async function poll() {
   maintainPage()
   if (isThreadPage()) {
+    clearSessionAfterPublication()
     await discoverBridges()
     if (autoEnabled()) await checkAndInject(false)
   }

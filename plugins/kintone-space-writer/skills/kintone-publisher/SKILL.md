@@ -44,6 +44,13 @@ idle period. The companion discovers this bounded range through `/health` and
 uses its returned token, so users do not configure a port. Do not create a
 Windows startup task or long-running service.
 
+For an unpublished rich article, keep `article.id` stable and call `mark-ready`
+after every local revision. The browser keeps one local-authoritative session
+for that target and article ID, replacing the whole editor when a new local hash
+arrives. Do not manually edit the mirrored kintone body. The session ends only
+after a successful native Publish removes the editor; a failed Publish keeps it
+active.
+
 After Ready:
 
 - if the page still shows the collapsed `发表评论…` entry, ask the user to

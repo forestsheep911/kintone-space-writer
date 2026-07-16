@@ -84,8 +84,20 @@ python <plugin>/scripts/kintone_article_bridge.py mark-ready `
 
 With `Ready 后自动注入` enabled, the userscript polls and injects the matching
 package. With it disabled, click `手动注入 Ready 文章`. A missing Ready package,
-target mismatch, non-empty editor, upload failure, or selector failure is shown
-in the panel without publishing anything.
+target mismatch, upload failure, or selector failure is shown in the panel
+without publishing anything.
+
+## Local-authoritative editing session
+
+Keep `article.id` stable while revising one article. After each local revision,
+run `mark-ready` again. The companion treats the exact target plus `article.id`
+as one active editing session: a newer local hash replaces the entire
+unpublished kintone editor, including its ordered images. Do not hand-edit the
+mirrored kintone content; the next local revision deliberately overwrites it.
+
+A different article never replaces a non-empty editor. The session ends only
+after kintone has completed publication and removed its native editor. A failed
+Publish leaves the editor and its local-authoritative session active.
 
 kintone requires one real user gesture before it creates the rich comment
 editor. If the page still shows the collapsed `发表评论…` entry, click it once.

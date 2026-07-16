@@ -131,6 +131,18 @@ Open or refresh the exact target Space thread.
 - Check all text, formats, links, images, and captions.
 - Click kintone's native publish button yourself only when correct.
 
+### Revise Before Publishing
+
+For one article, keep the same `id` in its rich JSON and change its `version`
+or content when revising. Run `mark-ready` again after every local revision.
+The companion replaces the full unpublished editor with that newer local
+revision. Treat the local JSON as authoritative: do not manually edit the
+mirrored kintone text, because the next sync overwrites it.
+
+After a successful native Publish, kintone removes the editor and the local
+editing session ends. If Publish fails and the editor remains, the session
+continues and can receive another local revision.
+
 ## REST Fallback
 
 The remaining sections apply only when the rich Web route is unavailable.
