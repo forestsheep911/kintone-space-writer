@@ -595,28 +595,24 @@ function renderVersions() {
     const row = document.createElement('div')
     row.className = 'version-row'
     row.dataset.current = String(match.status === 'injected')
-    const rowHeader = document.createElement('div')
-    rowHeader.className = 'version-row-header'
     const version = document.createElement('span')
     version.className = 'version-tag'
     version.textContent = match.version
-    const status = document.createElement('span')
-    status.className = 'version-status'
-    status.dataset.status = match.status
-    status.textContent = match.status === 'injected' ? '当前' : match.status === 'ready' ? '待应用' : match.status
-    rowHeader.append(version, status)
     const title = document.createElement('strong')
     title.className = 'version-title'
     title.textContent = match.title || match.articleId || match.id
     const meta = document.createElement('small')
     meta.className = 'version-meta'
-    meta.textContent = match.updatedAt.replace('T', ' ').replace('+00:00', ' UTC')
+    meta.textContent = `${match.updatedAt.replace('T', ' ').replace('+00:00', ' UTC')} · ${match.status === 'injected' ? '当前' : '待应用'}`
     const button = document.createElement('button')
     button.className = 'version-apply'
     button.type = 'button'
-    button.textContent = match.status === 'injected' ? '重新应用' : '应用版本'
+    button.textContent = match.status === 'injected' ? '重用' : '应用'
     button.addEventListener('click', () => void applyVersion(selected))
-    row.append(rowHeader, title, meta, button)
+    const detail = document.createElement('div')
+    detail.className = 'version-detail'
+    detail.append(version, title, meta)
+    row.append(detail, button)
     element.append(row)
   }
 }
@@ -737,20 +733,17 @@ function injectStyles() {
     #${ROOT_ID} button { cursor:pointer; font:inherit; }
     #${ROOT_ID}-refresh { background:transparent; border:1px solid #405475; border-radius:8px; color:#d8e5fb; font-weight:650; padding:8px 10px; width:100%; }
     #${ROOT_ID}-refresh:hover { background:#223149; border-color:#5d7eaf; }
-    #${ROOT_ID}-versions { display:grid; gap:9px; margin-top:12px; max-height:360px; overflow:auto; padding-right:2px; }
-    #${ROOT_ID} .version-row { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:11px; }
-    #${ROOT_ID} .version-row[data-current="true"] { background:#182b4a; border-color:#4274c8; box-shadow:inset 3px 0 0 var(--accent); }
-    #${ROOT_ID} .version-row-header { align-items:center; display:flex; justify-content:space-between; margin-bottom:7px; }
-    #${ROOT_ID} .version-tag { color:#bcd3ff; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; font-weight:750; letter-spacing:.04em; }
-    #${ROOT_ID} .version-status { background:#29364d; border-radius:999px; color:#b5c2d7; font-size:10px; font-weight:700; padding:3px 7px; }
-    #${ROOT_ID} .version-status[data-status="ready"] { background:#203754; color:#9ec5ff; }
-    #${ROOT_ID} .version-status[data-status="injected"] { background:#1b4b40; color:#8cf0c6; }
+    #${ROOT_ID}-versions { border-top:1px solid var(--line); margin-top:12px; max-height:360px; overflow:auto; }
+    #${ROOT_ID} .version-row { align-items:center; border-bottom:1px solid var(--line); display:flex; gap:10px; min-height:55px; padding:9px 4px; }
+    #${ROOT_ID} .version-row[data-current="true"] { background:linear-gradient(90deg,rgba(79,140,255,.12),transparent 72%); box-shadow:inset 2px 0 0 var(--accent); padding-left:10px; }
+    #${ROOT_ID} .version-detail { min-width:0; flex:1; }
+    #${ROOT_ID} .version-tag { color:#8fb9ff; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:11px; font-weight:750; letter-spacing:.04em; margin-right:7px; }
     #${ROOT_ID} .version-title, #${ROOT_ID} .version-meta { display:block; }
-    #${ROOT_ID} .version-title { color:#f1f5fb; font-size:14px; line-height:1.35; }
-    #${ROOT_ID} .version-meta { color:var(--muted); font-size:11px; margin:5px 0 10px; }
-    #${ROOT_ID} .version-apply { background:var(--accent-strong); border:1px solid #4d8dff; border-radius:7px; color:#fff; font-weight:700; padding:7px 10px; width:100%; }
-    #${ROOT_ID} .version-apply:hover { background:#4f8cff; }
-    #${ROOT_ID} .version-row[data-current="true"] .version-apply { background:transparent; border-color:#4b7fce; color:#bcd6ff; }
+    #${ROOT_ID} .version-title { color:#edf3fd; display:inline; font-size:13px; font-weight:600; line-height:1.35; }
+    #${ROOT_ID} .version-meta { color:var(--muted); font-size:11px; margin-top:3px; }
+    #${ROOT_ID} .version-apply { background:transparent; border:0; color:#91baff; font-size:12px; font-weight:700; padding:6px 4px; width:auto; }
+    #${ROOT_ID} .version-apply:hover { color:#d4e4ff; text-decoration:underline; }
+    #${ROOT_ID} .version-row[data-current="true"] .version-apply { color:#a9d8ff; }
     #${ROOT_ID} .empty { color:var(--muted); margin:5px 0; text-align:center; }
     #${ROOT_ID}-message { background:#1b2639; border:1px solid #2e405c; border-radius:8px; color:#bac8dd; margin:12px 0 0; padding:9px 10px; }
     #${ROOT_ID}-message[data-kind="success"] { background:#16362e; border-color:#245e4f; color:#9be7c4; }
