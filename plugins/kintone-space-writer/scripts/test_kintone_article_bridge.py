@@ -177,6 +177,8 @@ environments:
 
     def test_http_lists_retained_versions_and_returns_target_bound_package(self) -> None:
         first = self.create_package("v1")
+        first.pop("_assetDigests")
+        bridge.atomic_write_json(bridge.package_path(self.workspace, first["id"]), first)
         second = self.create_package("v2", "新版正文")
         server = bridge.BridgeServer(("127.0.0.1", 0), self.workspace, "test-instance", "test-token")
         thread = threading.Thread(target=server.serve_forever, daemon=True)

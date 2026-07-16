@@ -185,7 +185,20 @@ def package_summary(package: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def public_package(package: dict[str, Any], port: int) -> dict[str, Any]:
+def package_asset_digests(package: dict[str, Any], workspace: Path) -> dict[str, str]:
+    existing = package.get("_assetDigests")
+    if isinstance(existing, dict) and all(isinstance(name, str) and isinstance(digest, str) for name, digest in existing.items()):
+        return existing
+    paths = package.get("_assetPaths")
+    if not isinstance(paths, dict) or not all(isinstance(name, str) and isinstance(path, str) for name, path in paths.items()):
+        return {}
+    try:
+        return asset_digests(paths, workspace)
+    except OSError:
+        return {}
+
+
+def public_package(package: dict[str, Any], port: int, workspace: Path) -> dict[str, Any]:
     package_id = str(package["id"])
     assets = package.get("_assetPaths")
     asset_urls: dict[str, str] = {}
@@ -203,7 +216,7 @@ def public_package(package: dict[str, Any], port: int) -> dict[str, Any]:
         "updatedAt": package.get("updatedAt"),
         "target": package.get("target"),
         "article": package.get("article"),
-        "assetDigests": package.get("_assetDigests", {}),
+        "assetDigests": package_asset_digests(package, workspace),
         "assets": asset_urls,
     }
 
@@ -570,7 +583,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     {"error": "multiple-ready-packages", "count": len(matches)},
                 )
                 return
-            self.send_json(HTTPStatus.OK, public_package(matches[0], self.server.server_port))
+            self.send_json(HTTPStatus.OK, public_package(matches[0], self.server.server_port, self.server.workspace))
             return
         query = urllib.parse.parse_qs(parsed.query)
         origin = query.get("origin", [""])[0]
@@ -590,7 +603,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 )
                 if not target_matches(package, origin, space_id, thread_id):
                     raise BridgeError("Current page does not match the package target")
-                self.send_json(HTTPStatus.OK, public_package(package, self.server.server_port))
+                self.send_json(HTTPStatus.OK, public_package(package, self.server.server_port, self.server.workspace))
             except BridgeError:
                 self.send_json(HTTPStatus.NOT_FOUND, {"error": "package-not-found"})
             return
