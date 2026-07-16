@@ -90,7 +90,6 @@ declare const unsafeWindow: Window
 
 const ROOT_ID = 'ksw-standard-panel'
 const STYLE_ID = `${ROOT_ID}-style`
-const HIGHLIGHT_CLASS = `${ROOT_ID}-editor`
 const SERVICE_NAME = 'kintone-space-writer-bridge'
 const PORT_START = 8787
 const PORT_END = 8807
@@ -379,9 +378,7 @@ function editorCandidateDiagnostics() {
 }
 
 function selectBestEditor() {
-  document.querySelectorAll(`.${HIGHLIGHT_CLASS}`).forEach((element) => element.classList.remove(HIGHLIGHT_CLASS))
   editor = findEditorCandidates()[0]?.element ?? null
-  editor?.classList.add(HIGHLIGHT_CLASS)
   if (DEV_MODE) {
     const candidates = editorCandidateDiagnostics()
     debugStage('E1', `找到 ${candidates.length} 个编辑器候选`, { candidates })
@@ -698,7 +695,6 @@ function injectStyles() {
     #${ROOT_ID}-message[data-kind="warning"] { background:#fff7ed; color:#9a3412; }
     #${ROOT_ID}-message[data-kind="error"] { background:#fef2f2; color:#b91c1c; }
     #${ROOT_ID}-message[data-kind="working"] { background:#eff6ff; color:#1d4ed8; }
-    .${HIGHLIGHT_CLASS} { outline:3px solid #2563eb !important; outline-offset:2px !important; }
   `
   document.head.append(style)
 }
