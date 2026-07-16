@@ -1,5 +1,6 @@
 import { GM_getValue, GM_setValue, GM_xmlhttpRequest } from '$'
 
+import { editorSessionChanged } from './editor-image-session'
 import { clampPanelPosition, type PanelPosition } from './panel-position'
 import { imageCacheKey, newestVersionsFirst, type VersionSummary } from './version-picker'
 
@@ -122,6 +123,7 @@ let connections: BridgeConnection[] = []
 let discoveryInFlight: Promise<BridgeConnection[]> | null = null
 let versionMatches: VersionMatch[] = []
 let imageFileKeys = new Map<string, string>()
+let imageCacheEditor: HTMLElement | null = null
 
 type PanelState = PanelPosition & { collapsed: boolean }
 
@@ -536,6 +538,10 @@ async function applyPackage(connection: BridgeConnection, packageValue: BridgePa
     renderMessage('请先点击页面里的“发表评论…”展开评论框，再点击该版本。', 'warning')
     return
   }
+  if (editorSessionChanged(imageCacheEditor, target)) {
+    imageFileKeys.clear()
+    imageCacheEditor = target
+  }
   await postBridge(connection, `/v1/packages/${encodeURIComponent(packageValue.id)}/claim`, {
     hash: packageValue.hash,
     clientId: clientId(),
@@ -795,14 +801,12 @@ function maintainPage() {
   }
 }
 
-function clearImageCacheAfterEditorCloses() {
-  const richEditorExists = findEditorCandidates().some((candidate) => candidate.element.isContentEditable)
-  if (!richEditorExists) imageFileKeys.clear()
-}
-
 const observer = new MutationObserver(() => {
   maintainPage()
-  clearImageCacheAfterEditorCloses()
+  if (imageCacheEditor && !imageCacheEditor.isConnected) {
+    imageCacheEditor = null
+    imageFileKeys.clear()
+  }
 })
 observer.observe(document.documentElement, { childList: true, subtree: true })
 window.addEventListener('hashchange', maintainPage)
