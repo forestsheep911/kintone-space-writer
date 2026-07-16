@@ -649,9 +649,11 @@ function panelState(): PanelState | null {
 }
 
 function clampAndSavePanelPosition(root: HTMLElement, collapsed = root.dataset.collapsed === 'true') {
-  const state = panelState()
-  const initial = state ?? { left: window.innerWidth - root.offsetWidth - 16, top: 16, collapsed }
-  const position = clampPanelPosition(initial, { width: window.innerWidth, height: window.innerHeight }, { width: root.offsetWidth, height: root.offsetHeight })
+  const position = clampPanelPosition(
+    { left: root.offsetLeft, top: root.offsetTop },
+    { width: window.innerWidth, height: window.innerHeight },
+    { width: root.offsetWidth, height: root.offsetHeight },
+  )
   root.style.left = `${position.left}px`
   root.style.right = 'auto'
   root.style.top = `${position.top}px`
@@ -748,7 +750,13 @@ function createPanel() {
   refresh?.addEventListener('click', () => void refreshVersions())
   collapse?.addEventListener('click', () => setPanelCollapsed(root, root.dataset.collapsed !== 'true'))
   document.body.append(root)
-  setPanelCollapsed(root, panelState()?.collapsed ?? false)
+  const restored = panelState()
+  if (restored) {
+    root.style.left = `${restored.left}px`
+    root.style.right = 'auto'
+    root.style.top = `${restored.top}px`
+  }
+  setPanelCollapsed(root, restored?.collapsed ?? false)
   makePanelDraggable(root)
 }
 
