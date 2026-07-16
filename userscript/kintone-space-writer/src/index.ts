@@ -588,15 +588,29 @@ function renderVersions() {
     const match = selected.summary
     const row = document.createElement('div')
     row.className = 'version-row'
+    row.dataset.current = String(match.status === 'injected')
+    const rowHeader = document.createElement('div')
+    rowHeader.className = 'version-row-header'
+    const version = document.createElement('span')
+    version.className = 'version-tag'
+    version.textContent = match.version
+    const status = document.createElement('span')
+    status.className = 'version-status'
+    status.dataset.status = match.status
+    status.textContent = match.status === 'injected' ? '当前' : match.status === 'ready' ? '待应用' : match.status
+    rowHeader.append(version, status)
     const title = document.createElement('strong')
-    title.textContent = `${match.version} · ${match.title || match.articleId || match.id}`
+    title.className = 'version-title'
+    title.textContent = match.title || match.articleId || match.id
     const meta = document.createElement('small')
-    meta.textContent = `${match.updatedAt.replace('T', ' ').replace('+00:00', ' UTC')} · ${match.status}`
+    meta.className = 'version-meta'
+    meta.textContent = match.updatedAt.replace('T', ' ').replace('+00:00', ' UTC')
     const button = document.createElement('button')
+    button.className = 'version-apply'
     button.type = 'button'
-    button.textContent = `应用 ${match.version}`
+    button.textContent = match.status === 'injected' ? '重新应用' : '应用版本'
     button.addEventListener('click', () => void applyVersion(selected))
-    row.append(title, meta, button)
+    row.append(rowHeader, title, meta, button)
     element.append(row)
   }
 }
@@ -701,29 +715,42 @@ function injectStyles() {
   const style = document.createElement('style')
   style.id = STYLE_ID
   style.textContent = `
-    #${ROOT_ID} { background:#fff; border:1px solid #cbd5e1; border-radius:8px; box-shadow:0 10px 28px rgba(15,23,42,.18); color:#0f172a; font:13px/1.45 system-ui,sans-serif; padding:13px; position:fixed; right:16px; top:16px; width:260px; z-index:2147483646; }
-    #${ROOT_ID}-header { align-items:center; cursor:grab; display:flex; gap:8px; justify-content:space-between; margin-bottom:10px; user-select:none; }
+    #${ROOT_ID} { --panel:#101827; --surface:#182235; --surface-strong:#202d43; --line:#2b3a53; --muted:#91a0b8; --text:#f4f7fb; --accent:#4f8cff; --accent-strong:#2f6feb; --success:#36d399; background:var(--panel); border:1px solid #2c3b55; border-radius:14px; box-shadow:0 20px 48px rgba(2,6,23,.38); color:var(--text); font:13px/1.45 Inter,ui-sans-serif,system-ui,sans-serif; padding:12px; position:fixed; right:16px; top:16px; width:336px; z-index:2147483646; }
+    #${ROOT_ID}-header { align-items:center; cursor:grab; display:flex; gap:10px; justify-content:space-between; margin:0 0 14px; padding:3px 2px 13px; border-bottom:1px solid var(--line); user-select:none; }
     #${ROOT_ID}-header:active { cursor:grabbing; }
-    #${ROOT_ID}-title { font-size:15px; font-weight:700; }
-    #${ROOT_ID}-collapse { background:transparent; border:0; color:#334155; font-size:20px; line-height:18px; padding:0; width:22px; }
-    #${ROOT_ID}[data-collapsed="true"] { padding:9px 11px; width:auto; }
+    #${ROOT_ID}-title { display:flex; flex-direction:column; font-size:17px; font-weight:750; letter-spacing:0; line-height:1.15; }
+    #${ROOT_ID}-title small { color:#7ea9ff !important; font-size:10px !important; font-weight:700; letter-spacing:.08em; margin-top:4px; text-transform:uppercase; }
+    #${ROOT_ID}-collapse { align-items:center; background:var(--surface-strong); border:1px solid #344561; border-radius:50%; color:#d7e3f7; display:flex; font-size:18px; height:30px; justify-content:center; line-height:1; padding:0; transition:background .15s ease, transform .15s ease; width:30px; }
+    #${ROOT_ID}-collapse:hover { background:#30466b; transform:translateY(-1px); }
+    #${ROOT_ID}[data-collapsed="true"] { padding:10px 12px; width:auto; }
     #${ROOT_ID}[data-collapsed="true"] #${ROOT_ID}-header { margin:0; }
     #${ROOT_ID}[data-collapsed="true"] .panel-body { display:none; }
-    #${ROOT_ID}-connection { align-items:center; color:#b91c1c; display:flex; gap:7px; margin-bottom:10px; }
-    #${ROOT_ID}-connection::before { background:#dc2626; border-radius:50%; content:''; height:8px; width:8px; }
-    #${ROOT_ID}-connection[data-online="true"] { color:#166534; }
-    #${ROOT_ID}-connection[data-online="true"]::before { background:#16a34a; }
-    #${ROOT_ID} button { background:#2563eb; border:1px solid #2563eb; border-radius:5px; color:#fff; cursor:pointer; font:inherit; padding:7px 10px; width:100%; }
-    #${ROOT_ID}-versions { display:grid; gap:7px; margin-top:10px; max-height:310px; overflow:auto; }
-    #${ROOT_ID} .version-row { background:#f8fafc; border:1px solid #e2e8f0; border-radius:5px; padding:8px; }
-    #${ROOT_ID} .version-row strong, #${ROOT_ID} .version-row small { display:block; }
-    #${ROOT_ID} .version-row small { color:#64748b; font-size:11px; margin:3px 0 7px; }
-    #${ROOT_ID} .empty { color:#64748b; margin:0; }
-    #${ROOT_ID}-message { background:#f1f5f9; border-radius:5px; margin:10px 0 0; padding:8px; }
-    #${ROOT_ID}-message[data-kind="success"] { background:#f0fdf4; color:#166534; }
-    #${ROOT_ID}-message[data-kind="warning"] { background:#fff7ed; color:#9a3412; }
-    #${ROOT_ID}-message[data-kind="error"] { background:#fef2f2; color:#b91c1c; }
-    #${ROOT_ID}-message[data-kind="working"] { background:#eff6ff; color:#1d4ed8; }
+    #${ROOT_ID}-connection { align-items:center; background:#132a29; border:1px solid #1d4a43; border-radius:999px; color:#81e6bd; display:inline-flex; font-size:12px; gap:7px; margin:0 0 12px; padding:5px 9px; }
+    #${ROOT_ID}-connection::before { background:#f87171; border-radius:50%; box-shadow:0 0 0 3px rgba(248,113,113,.14); content:''; height:7px; width:7px; }
+    #${ROOT_ID}-connection[data-online="true"]::before { background:var(--success); box-shadow:0 0 0 3px rgba(54,211,153,.14); }
+    #${ROOT_ID} button { cursor:pointer; font:inherit; }
+    #${ROOT_ID}-refresh { background:transparent; border:1px solid #405475; border-radius:8px; color:#d8e5fb; font-weight:650; padding:8px 10px; width:100%; }
+    #${ROOT_ID}-refresh:hover { background:#223149; border-color:#5d7eaf; }
+    #${ROOT_ID}-versions { display:grid; gap:9px; margin-top:12px; max-height:360px; overflow:auto; padding-right:2px; }
+    #${ROOT_ID} .version-row { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:11px; }
+    #${ROOT_ID} .version-row[data-current="true"] { background:#182b4a; border-color:#4274c8; box-shadow:inset 3px 0 0 var(--accent); }
+    #${ROOT_ID} .version-row-header { align-items:center; display:flex; justify-content:space-between; margin-bottom:7px; }
+    #${ROOT_ID} .version-tag { color:#bcd3ff; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; font-weight:750; letter-spacing:.04em; }
+    #${ROOT_ID} .version-status { background:#29364d; border-radius:999px; color:#b5c2d7; font-size:10px; font-weight:700; padding:3px 7px; }
+    #${ROOT_ID} .version-status[data-status="ready"] { background:#203754; color:#9ec5ff; }
+    #${ROOT_ID} .version-status[data-status="injected"] { background:#1b4b40; color:#8cf0c6; }
+    #${ROOT_ID} .version-title, #${ROOT_ID} .version-meta { display:block; }
+    #${ROOT_ID} .version-title { color:#f1f5fb; font-size:14px; line-height:1.35; }
+    #${ROOT_ID} .version-meta { color:var(--muted); font-size:11px; margin:5px 0 10px; }
+    #${ROOT_ID} .version-apply { background:var(--accent-strong); border:1px solid #4d8dff; border-radius:7px; color:#fff; font-weight:700; padding:7px 10px; width:100%; }
+    #${ROOT_ID} .version-apply:hover { background:#4f8cff; }
+    #${ROOT_ID} .version-row[data-current="true"] .version-apply { background:transparent; border-color:#4b7fce; color:#bcd6ff; }
+    #${ROOT_ID} .empty { color:var(--muted); margin:5px 0; text-align:center; }
+    #${ROOT_ID}-message { background:#1b2639; border:1px solid #2e405c; border-radius:8px; color:#bac8dd; margin:12px 0 0; padding:9px 10px; }
+    #${ROOT_ID}-message[data-kind="success"] { background:#16362e; border-color:#245e4f; color:#9be7c4; }
+    #${ROOT_ID}-message[data-kind="warning"] { background:#3a2d18; border-color:#6a5024; color:#f3d38b; }
+    #${ROOT_ID}-message[data-kind="error"] { background:#41222a; border-color:#713543; color:#ffb4bd; }
+    #${ROOT_ID}-message[data-kind="working"] { background:#1c3154; border-color:#315a93; color:#b7d1ff; }
   `
   document.head.append(style)
 }
