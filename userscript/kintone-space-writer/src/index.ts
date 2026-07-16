@@ -1,12 +1,6 @@
 import { GM_getValue, GM_setValue, GM_xmlhttpRequest } from '$'
 
-import { isReadyCheckDue, nextDiscoveryDelay } from './bridge-polling'
-import {
-  canWriteEditor,
-  sessionEnds,
-  sessionKey,
-  type ActiveEditorSession,
-} from './editor-session'
+import { imageCacheKey, newestVersionsFirst, type VersionSummary } from './version-picker'
 
 type TextBlock = {
   type: 'heading' | 'paragraph' | 'quote' | 'bulletList' | 'numberList' | 'divider'
@@ -54,10 +48,26 @@ type BridgePackage = {
   id: string
   version: string
   hash: string
-  status: 'ready'
+  status: 'ready' | 'claimed' | 'injected' | 'failed'
   target: PackageTarget
   article: RichArticle
   assets: Record<string, string>
+  assetDigests: Record<string, string>
+}
+
+type BridgePackageSummary = VersionSummary & {
+  id: string
+  articleId: string | null
+  title: string | null
+  version: string
+  hash: string
+  status: BridgePackage['status']
+  updatedAt: string
+}
+
+type VersionMatch = VersionSummary & {
+  connection: BridgeConnection
+  summary: BridgePackageSummary
 }
 
 type BridgeHealth = {
@@ -99,33 +109,19 @@ const STYLE_ID = `${ROOT_ID}-style`
 const SERVICE_NAME = 'kintone-space-writer-bridge'
 const PORT_START = 8787
 const PORT_END = 8807
-const AUTO_KEY = 'ksw-standard-auto-inject'
 const CLIENT_KEY = 'ksw-standard-client-id'
 const PORTS_KEY = 'ksw-standard-bridge-ports'
-const ACTIVE_SESSION_KEY = 'ksw-standard-active-editor-session'
-const DISCOVERY_INTERVAL_MS = 5000
-const CONNECTION_GRACE_MS = 60000
-const POLL_INTERVAL_MS = 1500
 const DEV_MODE = import.meta.env.DEV
 const DEV_LABEL = 'DEV 0.2.5'
 
 let editor: HTMLElement | null = null
 let busy = false
 let connections: BridgeConnection[] = []
-let lastDiscovery = 0
-let lastConnectedAt = 0
-let lastReadyCheckAt = 0
-let discoveryFailures = 0
-let nextDiscoveryAt = 0
 let discoveryInFlight: Promise<BridgeConnection[]> | null = null
-let pollTimer: number | null = null
+let versionMatches: VersionMatch[] = []
+let imageFileKeys = new Map<string, string>()
 
-function debugStage(stage: string, message: string, detail?: Record<string, unknown>) {
-  if (!DEV_MODE) return
-  if (/^(HTTP|C\d|D[23])/.test(stage)) return
-  console.info(`[KSW ${DEV_LABEL}] ${stage} ${message}`, detail ?? '')
-  renderMessage(`[${stage}] ${message}`, 'working')
-}
+function debugStage(_stage: string, _message: string, _detail?: Record<string, unknown>) {}
 
 function isThreadPage() {
   return /\/space\/\d+\/thread\/\d+/i.test(location.href)
@@ -213,68 +209,20 @@ async function probePort(port: number, timeout = 900): Promise<BridgeConnection 
   }
 }
 
-async function performDiscovery(force: boolean) {
-  debugStage('D1', `开始发现 Bridge${force ? '（强制）' : ''}`)
-  const now = Date.now()
-  const previousConnections = connections
-  const previousCount = connections.length
+async function performDiscovery() {
   const cached = GM_getValue<number[]>(PORTS_KEY, [])
-  const knownPorts = [...new Set([...connections.map((connection) => connection.port), ...cached])]
-  let known = (await Promise.all(knownPorts.map((port) => probePort(port, 5000)))).filter(
+  const ports = [...new Set([...cached, ...Array.from({ length: PORT_END - PORT_START + 1 }, (_, index) => PORT_START + index)])]
+  connections = (await Promise.all(ports.map((port) => probePort(port)))).filter(
     (value): value is BridgeConnection => Boolean(value),
   )
-  if (!known.length && knownPorts.length) {
-    await delay(250)
-    known = (await Promise.all(knownPorts.map((port) => probePort(port, 5000)))).filter(
-      (value): value is BridgeConnection => Boolean(value),
-    )
-  }
-  let found = known
-  const graceActive = previousConnections.length > 0 && now - lastConnectedAt < CONNECTION_GRACE_MS
-  if (!known.length && !graceActive) {
-    const knownSet = new Set(knownPorts)
-    const remainingPorts = Array.from(
-      { length: PORT_END - PORT_START + 1 },
-      (_, index) => PORT_START + index,
-    ).filter((port) => !knownSet.has(port))
-    for (const port of remainingPorts) {
-      const connection = await probePort(port)
-      if (connection) {
-        found = [connection]
-        break
-      }
-    }
-  }
-  const completedAt = Date.now()
-  if (found.length) {
-    connections = found
-    lastConnectedAt = completedAt
-    discoveryFailures = 0
-    nextDiscoveryAt = 0
-  } else if (previousConnections.length && completedAt - lastConnectedAt < CONNECTION_GRACE_MS) {
-    connections = previousConnections
-  } else {
-    connections = []
-    nextDiscoveryAt = completedAt + nextDiscoveryDelay(discoveryFailures)
-    discoveryFailures += 1
-  }
-  lastDiscovery = now
   GM_setValue(PORTS_KEY, connections.map((connection) => connection.port))
   renderConnection(connections.length)
-  debugStage('D1✓', `发现 ${connections.length} 个 Bridge`, {
-    ports: connections.map((connection) => connection.port),
-  })
-  if (previousCount === 0 && connections.length > 0 && autoEnabled() && !busy) {
-    window.setTimeout(() => void checkAndInject(false), 0)
-  }
   return connections
 }
 
-async function discoverBridges(force = false) {
-  const now = Date.now()
-  if (!force && (now < nextDiscoveryAt || now - lastDiscovery < DISCOVERY_INTERVAL_MS)) return connections
+async function discoverBridges() {
   if (discoveryInFlight) return discoveryInFlight
-  discoveryInFlight = performDiscovery(force)
+  discoveryInFlight = performDiscovery()
   try {
     return await discoveryInFlight
   } finally {
@@ -288,32 +236,27 @@ function authorizedBridgeUrl(connection: BridgeConnection, value: string) {
   return url.href
 }
 
-async function getReady(connection: BridgeConnection, target: PageTarget): Promise<BridgePackage | null> {
-  debugStage('D3', `读取 ${connection.port} 的 Ready 草稿`, {
-    origin: target.origin,
-    spaceId: target.spaceId,
-    threadId: target.threadId,
-  })
+async function listVersions(connection: BridgeConnection, target: PageTarget): Promise<BridgePackageSummary[]> {
   const query = new URLSearchParams({ ...target, bridgeToken: connection.token })
-  const response = await gmRequest<BridgePackage | { error?: string; count?: number }>({
-    url: `http://127.0.0.1:${connection.port}/v1/ready?${query}`,
+  const response = await gmRequest<{ packages?: BridgePackageSummary[]; error?: string }>({
+    url: `http://127.0.0.1:${connection.port}/v1/packages?${query}`,
     timeout: 10000,
   })
-  if (response.status === 204) return null
-  if (response.status === 409) throw new Error('当前目标存在多个 Ready 草稿，请先在本地处理冲突。')
-  if (response.status !== 200) throw new Error(`读取 Ready 草稿失败：HTTP ${response.status}`)
-  return response.response as BridgePackage
+  if (response.status !== 200) throw new Error(response.response?.error || `读取版本列表失败：HTTP ${response.status}`)
+  return response.response.packages ?? []
 }
 
-async function findReady(target: PageTarget, bridges: BridgeConnection[]) {
-  debugStage('D2', `使用已验证的 ${bridges.length} 个连接检查 Ready`)
-  const matches: Array<{ connection: BridgeConnection; package: BridgePackage }> = []
-  for (const connection of bridges) {
-    const packageValue = await getReady(connection, target)
-    if (packageValue) matches.push({ connection, package: packageValue })
+async function getPackage(connection: BridgeConnection, target: PageTarget, packageId: string): Promise<BridgePackage> {
+  const query = new URLSearchParams({ ...target, bridgeToken: connection.token })
+  const response = await gmRequest<BridgePackage | { error?: string }>({
+    url: `http://127.0.0.1:${connection.port}/v1/packages/${encodeURIComponent(packageId)}?${query}`,
+    timeout: 10000,
+  })
+  if (response.status !== 200) {
+    const error = 'error' in response.response ? response.response.error : undefined
+    throw new Error(error || `读取文章版本失败：HTTP ${response.status}`)
   }
-  if (matches.length > 1) throw new Error('多个本地工作区同时存在匹配的 Ready 草稿，请只保留一个。')
-  return matches[0] ?? null
+  return response.response as BridgePackage
 }
 
 async function postBridge(
@@ -552,33 +495,19 @@ async function buildMarkup(connection: BridgeConnection, packageValue: BridgePac
     }
     imageIndex += 1
     renderMessage(`正在处理图片 ${imageIndex}/${imageBlocks.length}：${block.fileName}`, 'working')
-    const file = await loadAsset(connection, packageValue, block)
-    const upload = await uploadImage(file, block)
-    chunks.push(imageMarkup(block, upload.fileKey, upload.width))
+    const width = imageWidth(block)
+    const digest = packageValue.assetDigests[block.fileName]
+    const cacheKey = digest ? imageCacheKey(digest, width) : ''
+    let fileKey = cacheKey ? imageFileKeys.get(cacheKey) : undefined
+    if (!fileKey) {
+      const file = await loadAsset(connection, packageValue, block)
+      const upload = await uploadImage(file, block)
+      fileKey = upload.fileKey
+      if (cacheKey) imageFileKeys.set(cacheKey, fileKey)
+    }
+    chunks.push(imageMarkup(block, fileKey, width))
   }
   return chunks.join('')
-}
-
-function activeEditorSession() {
-  return GM_getValue<ActiveEditorSession | null>(ACTIVE_SESSION_KEY, null)
-}
-
-function saveActiveEditorSession(session: ActiveEditorSession) {
-  GM_setValue(ACTIVE_SESSION_KEY, session)
-}
-
-function clearActiveEditorSession() {
-  GM_setValue(ACTIVE_SESSION_KEY, null)
-}
-
-function articleId(packageValue: BridgePackage) {
-  const value = String(packageValue.article.id ?? '').trim()
-  if (!value) throw new Error('Ready 草稿缺少稳定的 article.id，无法开始本地编辑会话。')
-  return value
-}
-
-function editorHasContent(target: HTMLElement) {
-  return Boolean((target.textContent ?? '').trim() || target.querySelector('img, [data-file]'))
 }
 
 async function sendResult(
@@ -595,63 +524,38 @@ async function sendResult(
   })
 }
 
-async function injectReady(match: { connection: BridgeConnection; package: BridgePackage }) {
+async function applyPackage(connection: BridgeConnection, packageValue: BridgePackage) {
   const page = currentTarget()
-  if (!page || !targetMatches(match.package.target, page)) throw new Error('Ready 草稿目标与当前页面不一致。')
-  const currentArticleId = articleId(match.package)
-  const key = sessionKey(page, currentArticleId)
-  const activeSession = activeEditorSession()
+  if (!page || !targetMatches(packageValue.target, page)) throw new Error('文章版本目标与当前页面不一致。')
   const target = await resolveEditor()
   if (!target || !target.isContentEditable) {
-    renderMessage('请先点击页面里的“发表评论…”展开评论框，展开后会自动继续。', 'warning')
+    renderMessage('请先点击页面里的“发表评论…”展开评论框，再点击该版本。', 'warning')
     return
   }
-  const hasContent = editorHasContent(target)
-  if (!canWriteEditor(activeSession, key, match.package.hash, hasContent)) {
-    if (activeSession?.key === key && activeSession.hash === match.package.hash) {
-      await sendResult(match.connection, match.package, 'injected')
-      renderMessage('本地最新版本已经同步到编辑器。', 'normal')
-      return
-    }
-    renderMessage('当前编辑器不属于这篇本地文章；请清空后再开始新的编辑会话。', 'warning')
-    return
-  }
-  await postBridge(match.connection, `/v1/packages/${encodeURIComponent(match.package.id)}/claim`, {
-    hash: match.package.hash,
+  await postBridge(connection, `/v1/packages/${encodeURIComponent(packageValue.id)}/claim`, {
+    hash: packageValue.hash,
     clientId: clientId(),
     ...page,
   })
   try {
-    const markup = await buildMarkup(match.connection, match.package)
+    const markup = await buildMarkup(connection, packageValue)
     if (!target.isConnected) throw new Error('图片上传期间编辑器已被页面替换。')
     target.focus()
     document.execCommand('selectAll', false)
     if (!document.execCommand('insertHTML', false, markup)) throw new Error('浏览器拒绝写入富文本编辑器。')
     target.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }))
     target.dispatchEvent(new Event('change', { bubbles: true }))
-    saveActiveEditorSession({ key, articleId: currentArticleId, hash: match.package.hash })
-    await sendResult(match.connection, match.package, 'injected')
-    renderMessage(`“${match.package.article.title ?? match.package.id}”已同步；本地新版本会继续覆盖此编辑器。`, 'success')
+    await sendResult(connection, packageValue, 'injected')
+    renderMessage(`已应用“${packageValue.article.title ?? packageValue.id}” ${packageValue.version}。再次点击任一版本即可覆盖编辑器。`, 'success')
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     try {
-      await sendResult(match.connection, match.package, 'failed', message)
+      await sendResult(connection, packageValue, 'failed', message)
     } catch {
       // Keep the original injection error visible.
     }
     throw error
   }
-}
-
-function autoEnabled() {
-  return GM_getValue<boolean>(AUTO_KEY, false)
-}
-
-function setAutoEnabled(value: boolean) {
-  GM_setValue(AUTO_KEY, value)
-  const button = document.querySelector<HTMLElement>(`#${ROOT_ID}-manual`)
-  if (button) button.hidden = value
-  renderMessage(value ? '等待当前目标的 Ready 草稿。' : '自动注入已关闭。', 'normal')
 }
 
 function renderConnection(count: number) {
@@ -668,28 +572,66 @@ function renderMessage(message: string, kind: 'normal' | 'working' | 'success' |
   element.dataset.kind = kind
 }
 
-async function checkAndInject(manual: boolean) {
-  const now = Date.now()
-  if (busy || !isReadyCheckDue(lastReadyCheckAt, now, manual)) return
+function renderVersions() {
+  const element = document.querySelector<HTMLElement>(`#${ROOT_ID}-versions`)
+  if (!element) return
+  if (!versionMatches.length) {
+    element.innerHTML = '<p class="empty">当前目标没有可用版本。</p>'
+    return
+  }
+  element.replaceChildren()
+  for (const selected of newestVersionsFirst(versionMatches)) {
+    const match = selected.summary
+    const row = document.createElement('div')
+    row.className = 'version-row'
+    const title = document.createElement('strong')
+    title.textContent = `${match.version} · ${match.title || match.articleId || match.id}`
+    const meta = document.createElement('small')
+    meta.textContent = `${match.updatedAt.replace('T', ' ').replace('+00:00', ' UTC')} · ${match.status}`
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.textContent = `应用 ${match.version}`
+    button.addEventListener('click', () => void applyVersion(selected))
+    row.append(title, meta, button)
+    element.append(row)
+  }
+}
+
+async function refreshVersions() {
+  if (busy) return
   const page = currentTarget()
   if (!page) return
   busy = true
-  renderMessage(manual ? '正在读取 Ready 草稿…' : 'Bridge 已连接，正在检查 Ready 草稿…', 'working')
-  debugStage('C1', `开始${manual ? '手动' : '自动'}检查`)
+  renderMessage('正在发现本地 Bridge 并读取版本…', 'working')
   try {
-    const bridges = await discoverBridges(manual)
-    debugStage('C2', `发现流程返回 ${bridges.length} 个连接`)
+    const bridges = await discoverBridges()
     if (!bridges.length) {
-      renderMessage('Bridge 离线。请先调用插件准备文章。', manual ? 'error' : 'normal')
+      versionMatches = []
+      renderVersions()
+      renderMessage('没有发现本地 Bridge。请先在本地准备文章。', 'error')
       return
     }
-    lastReadyCheckAt = now
-    const match = await findReady(page, bridges)
-    if (!match) {
-      renderMessage(manual ? '当前目标没有 Ready 草稿。' : '等待当前目标的 Ready 草稿。', manual ? 'warning' : 'normal')
-      return
-    }
-    await injectReady(match)
+    versionMatches = (await Promise.all(
+      bridges.map(async (connection) => (await listVersions(connection, page)).map((summary) => ({ ...summary, connection, summary }))),
+    )).flat()
+    renderVersions()
+    renderMessage(versionMatches.length ? `已读取 ${versionMatches.length} 个本地版本。` : '当前目标没有可用版本。', versionMatches.length ? 'success' : 'warning')
+  } catch (error) {
+    renderMessage(error instanceof Error ? error.message : String(error), 'error')
+  } finally {
+    busy = false
+  }
+}
+
+async function applyVersion(match: VersionMatch) {
+  if (busy) return
+  const page = currentTarget()
+  if (!page) return
+  busy = true
+  renderMessage(`正在读取并应用 ${match.summary.version}…`, 'working')
+  try {
+    const packageValue = await getPackage(match.connection, page, match.summary.id)
+    await applyPackage(match.connection, packageValue)
   } catch (error) {
     renderMessage(error instanceof Error ? error.message : String(error), 'error')
   } finally {
@@ -708,9 +650,12 @@ function injectStyles() {
     #${ROOT_ID}-connection::before { background:#dc2626; border-radius:50%; content:''; height:8px; width:8px; }
     #${ROOT_ID}-connection[data-online="true"] { color:#166534; }
     #${ROOT_ID}-connection[data-online="true"]::before { background:#16a34a; }
-    #${ROOT_ID} .switch-row { align-items:center; display:flex; justify-content:space-between; margin:9px 0; }
-    #${ROOT_ID} input { height:18px; width:18px; }
     #${ROOT_ID} button { background:#2563eb; border:1px solid #2563eb; border-radius:5px; color:#fff; cursor:pointer; font:inherit; padding:7px 10px; width:100%; }
+    #${ROOT_ID}-versions { display:grid; gap:7px; margin-top:10px; max-height:310px; overflow:auto; }
+    #${ROOT_ID} .version-row { background:#f8fafc; border:1px solid #e2e8f0; border-radius:5px; padding:8px; }
+    #${ROOT_ID} .version-row strong, #${ROOT_ID} .version-row small { display:block; }
+    #${ROOT_ID} .version-row small { color:#64748b; font-size:11px; margin:3px 0 7px; }
+    #${ROOT_ID} .empty { color:#64748b; margin:0; }
     #${ROOT_ID}-message { background:#f1f5f9; border-radius:5px; margin:10px 0 0; padding:8px; }
     #${ROOT_ID}-message[data-kind="success"] { background:#f0fdf4; color:#166534; }
     #${ROOT_ID}-message[data-kind="warning"] { background:#fff7ed; color:#9a3412; }
@@ -726,32 +671,15 @@ function createPanel() {
   const root = document.createElement('aside')
   root.id = ROOT_ID
   root.innerHTML = `
-    <h2>文章注入${DEV_MODE ? ` <small style="color:#2563eb;font-size:11px">${DEV_LABEL}</small>` : ''}</h2>
+    <h2>文章版本${DEV_MODE ? ` <small style="color:#2563eb;font-size:11px">${DEV_LABEL}</small>` : ''}</h2>
     <div id="${ROOT_ID}-connection" data-online="false">Bridge 离线</div>
-    <label class="switch-row"><span>Ready 后自动注入</span><input id="${ROOT_ID}-auto" type="checkbox"></label>
-    <button id="${ROOT_ID}-manual" type="button">手动注入 Ready 文章</button>
-    <p id="${ROOT_ID}-message">正在查找本地 Bridge…</p>
+    <button id="${ROOT_ID}-refresh" type="button">刷新版本</button>
+    <div id="${ROOT_ID}-versions"></div>
+    <p id="${ROOT_ID}-message">点击“刷新版本”读取当前目标的本地文章。</p>
   `
-  const checkbox = root.querySelector<HTMLInputElement>(`#${ROOT_ID}-auto`)
-  const manual = root.querySelector<HTMLButtonElement>(`#${ROOT_ID}-manual`)
-  if (checkbox) {
-    checkbox.checked = autoEnabled()
-    checkbox.addEventListener('change', () => {
-      setAutoEnabled(checkbox.checked)
-      if (checkbox.checked) void checkAndInject(false)
-    })
-  }
-  if (manual) {
-    manual.hidden = autoEnabled()
-    manual.addEventListener('click', () => void checkAndInject(true))
-  }
+  const refresh = root.querySelector<HTMLButtonElement>(`#${ROOT_ID}-refresh`)
+  refresh?.addEventListener('click', () => void refreshVersions())
   document.body.append(root)
-  void discoverBridges(true)
-    .then(() => {
-      if (autoEnabled()) void checkAndInject(false)
-      else renderMessage('自动注入已关闭。', 'normal')
-    })
-    .catch((error) => renderMessage(error instanceof Error ? error.message : String(error), 'error'))
 }
 
 function maintainPage() {
@@ -762,30 +690,16 @@ function maintainPage() {
   }
 }
 
-function clearSessionAfterPublication() {
-  const session = activeEditorSession()
-  if (!session) return
+function clearImageCacheAfterEditorCloses() {
   const richEditorExists = findEditorCandidates().some((candidate) => candidate.element.isContentEditable)
-  if (sessionEnds(richEditorExists)) clearActiveEditorSession()
+  if (!richEditorExists) imageFileKeys.clear()
 }
 
-async function poll() {
+const observer = new MutationObserver(() => {
   maintainPage()
-  if (isThreadPage()) {
-    clearSessionAfterPublication()
-    await discoverBridges()
-    if (autoEnabled()) await checkAndInject(false)
-  }
-}
-
-const observer = new MutationObserver(maintainPage)
+  clearImageCacheAfterEditorCloses()
+})
 observer.observe(document.documentElement, { childList: true, subtree: true })
 window.addEventListener('hashchange', maintainPage)
 window.addEventListener('popstate', maintainPage)
 maintainPage()
-if (pollTimer === null) {
-  pollTimer = window.setInterval(
-    () => void poll().catch((error) => renderMessage(error instanceof Error ? error.message : String(error), 'error')),
-    POLL_INTERVAL_MS,
-  )
-}

@@ -37,28 +37,26 @@ Before marking a draft Ready:
 python <plugin>/scripts/kintone_article_bridge.py mark-ready --workspace . --article drafts/article-v001.rich.json --assets-root assets --targets kintone-targets.yaml --target test-news
 ```
 
-`mark-ready` is idempotent. A new version of the same article supersedes its old
-Ready package; the same unchanged version is not queued twice. The Bridge binds
-only to `127.0.0.1`, chooses an available port in 8787–8807, and exits after an
-idle period. The companion discovers this bounded range through `/health` and
-uses its returned token, so users do not configure a port. Do not create a
-Windows startup task or long-running service.
+`mark-ready` is idempotent. A new version of the same article is retained beside
+earlier versions; the same unchanged version is not queued twice. The Bridge
+binds only to `127.0.0.1`, chooses an available port in 8787–8807, and exits
+after an idle period. The companion discovers this bounded range through
+`/health` only after the user clicks `刷新版本`, then uses its returned token.
+Do not create a Windows startup task or long-running service.
 
 For an unpublished rich article, keep `article.id` stable and call `mark-ready`
-after every local revision. The browser keeps one local-authoritative session
-for that target and article ID, replacing the whole editor when a new local hash
-arrives. Do not manually edit the mirrored kintone body. The session ends only
-after a successful native Publish removes the editor; a failed Publish keeps it
-active.
+after every local revision. The browser retains every version for the target;
+the user selects which version replaces the editor. Do not manually edit the
+mirrored kintone body.
 
 After Ready:
 
+- ask the user to click `刷新版本` on the exact target page to list retained
+  local versions; no background polling or injection occurs;
 - if the page still shows the collapsed `发表评论…` entry, ask the user to
   click it once. kintone requires a real user gesture to create the rich editor;
-  the package stays Ready until that editor exists;
-- with automatic injection enabled, the userscript picks it up on the exact
-  target page as soon as the editor is expanded;
-- with automatic injection disabled, the user clicks `手动注入 Ready 文章`;
+- the user clicks the desired `应用 v001` version button, which may replace a
+  previously applied version in that live editor;
 - the user always reviews the populated editor and clicks kintone Publish;
 - never click Publish for the user.
 

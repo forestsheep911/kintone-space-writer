@@ -83,7 +83,7 @@ environments:
         self.assertFalse(bridge.target_matches(package, "https://customer.cybozu.cn", "10", "99"))
         self.assertFalse(bridge.target_matches(package, "https://other.cybozu.cn", "10", "12"))
 
-    def test_mark_ready_is_idempotent_and_new_version_supersedes_old_ready(self) -> None:
+    def test_mark_ready_keeps_each_version_available_for_manual_selection(self) -> None:
         first = self.create_package("v1")
         duplicate = self.create_package("v1")
         self.assertEqual(first["id"], duplicate["id"])
@@ -91,8 +91,10 @@ environments:
 
         second = self.create_package("v2", "新版正文")
         stored_first = bridge.read_json(bridge.package_path(self.workspace, first["id"]))
-        self.assertEqual(stored_first["status"], "superseded")
+        self.assertEqual(stored_first["status"], "ready")
         self.assertEqual(second["status"], "ready")
+        ready = bridge.ready_packages(self.workspace, "https://customer.cybozu.cn", "10", "12")
+        self.assertEqual({package["id"] for package in ready}, {first["id"], second["id"]})
 
     def test_new_revision_remains_ready_after_previous_revision_is_injected(self) -> None:
         first = self.create_package("v1")
@@ -160,6 +162,45 @@ environments:
                 self.assertEqual(json.loads(response.read())["status"], "injected")
             stored = bridge.read_json(bridge.package_path(self.workspace, package["id"]))
             self.assertEqual(stored["status"], "injected")
+
+            reapply_request = urllib.request.Request(
+                f"{base}/v1/packages/{package['id']}/claim?bridgeToken=test-token",
+                data=claim,
+                method="POST",
+            )
+            with urllib.request.urlopen(reapply_request) as response:
+                self.assertEqual(json.loads(response.read())['status'], 'claimed')
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    def test_http_lists_retained_versions_and_returns_target_bound_package(self) -> None:
+        first = self.create_package("v1")
+        second = self.create_package("v2", "新版正文")
+        server = bridge.BridgeServer(("127.0.0.1", 0), self.workspace, "test-instance", "test-token")
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        query = urllib.parse.urlencode(
+            {
+                "origin": "https://customer.s.cybozu.cn",
+                "spaceId": "10",
+                "threadId": "12",
+                "bridgeToken": "test-token",
+            }
+        )
+
+        try:
+            with urllib.request.urlopen(f"{base}/v1/packages?{query}") as response:
+                listing = json.loads(response.read().decode("utf-8"))
+            self.assertEqual({item["id"] for item in listing["packages"]}, {first["id"], second["id"]})
+            self.assertEqual(listing["packages"][0]["articleId"], "weekly-news")
+
+            with urllib.request.urlopen(f"{base}/v1/packages/{first['id']}?{query}") as response:
+                package = json.loads(response.read().decode("utf-8"))
+            self.assertEqual(package["id"], first["id"])
+            self.assertEqual(len(package["assetDigests"]["chart.png"]), 64)
         finally:
             server.shutdown()
             server.server_close()

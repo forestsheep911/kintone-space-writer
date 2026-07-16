@@ -159,6 +159,32 @@ def ready_packages(workspace: Path, origin: str, space_id: str, thread_id: str) 
     return results
 
 
+def target_packages(workspace: Path, origin: str, space_id: str, thread_id: str) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for path in packages_dir(workspace).glob("*.json"):
+        try:
+            package = refresh_expired_claim(path, read_json(path))
+        except BridgeError:
+            continue
+        if package.get("schema") == SCHEMA and target_matches(package, origin, space_id, thread_id):
+            results.append(package)
+    return sorted(results, key=lambda package: str(package.get("createdAt", "")), reverse=True)
+
+
+def package_summary(package: dict[str, Any]) -> dict[str, Any]:
+    article = package.get("article")
+    return {
+        "id": package.get("id"),
+        "articleId": article.get("id") if isinstance(article, dict) else None,
+        "title": article.get("title") if isinstance(article, dict) else None,
+        "version": package.get("version"),
+        "hash": package.get("hash"),
+        "status": package.get("status"),
+        "createdAt": package.get("createdAt"),
+        "updatedAt": package.get("updatedAt"),
+    }
+
+
 def public_package(package: dict[str, Any], port: int) -> dict[str, Any]:
     package_id = str(package["id"])
     assets = package.get("_assetPaths")
@@ -174,8 +200,10 @@ def public_package(package: dict[str, Any], port: int) -> dict[str, Any]:
         "hash": package.get("hash"),
         "status": package.get("status"),
         "createdAt": package.get("createdAt"),
+        "updatedAt": package.get("updatedAt"),
         "target": package.get("target"),
         "article": package.get("article"),
+        "assetDigests": package.get("_assetDigests", {}),
         "assets": asset_urls,
     }
 
@@ -288,6 +316,17 @@ def content_hash(article: dict[str, Any], assets: dict[str, str], workspace: Pat
     return digest.hexdigest()
 
 
+def asset_digests(assets: dict[str, str], workspace: Path) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for name, relative in assets.items():
+        digest = hashlib.sha256()
+        with (workspace / relative).open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        result[name] = digest.hexdigest()
+    return result
+
+
 def create_ready_package(
     workspace: Path,
     article_path: Path,
@@ -306,11 +345,6 @@ def create_ready_package(
     package_id = safe_package_id(f"{article_id}-{version}-{digest[:10]}")
     now = utc_now()
     destination = load_target(targets_path, target_alias)
-    destination_key = (
-        tuple(destination["origins"]),
-        destination["spaceId"],
-        destination["threadId"],
-    )
     existing_path = package_path(workspace, package_id)
     if existing_path.exists():
         existing = read_json(existing_path)
@@ -329,34 +363,10 @@ def create_ready_package(
         "article": article,
         "_articlePath": article_path.relative_to(workspace).as_posix(),
         "_assetPaths": assets,
+        "_assetDigests": asset_digests(assets, workspace),
         "claim": None,
         "events": [{"at": now, "type": "ready"}],
     }
-    for old_path in packages_dir(workspace).glob("*.json"):
-        if old_path == existing_path:
-            continue
-        try:
-            old_package = read_json(old_path)
-            old_target = old_package.get("target", {})
-            old_destination_key = (
-                tuple(old_target.get("origins", [])),
-                str(old_target.get("spaceId", "")),
-                str(old_target.get("threadId", "")),
-            )
-            old_article = old_package.get("article", {})
-            if (
-                old_package.get("status") == "ready"
-                and old_destination_key == destination_key
-                and str(old_article.get("id") or "") == str(article.get("id") or "")
-            ):
-                old_package["status"] = "superseded"
-                old_package["updatedAt"] = now
-                old_package.setdefault("events", []).append(
-                    {"at": now, "type": "superseded", "note": package_id}
-                )
-                atomic_write_json(old_path, old_package)
-        except (BridgeError, OSError, AttributeError):
-            continue
     atomic_write_json(package_path(workspace, package_id), package)
     return package
 
@@ -562,6 +572,28 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 return
             self.send_json(HTTPStatus.OK, public_package(matches[0], self.server.server_port))
             return
+        query = urllib.parse.parse_qs(parsed.query)
+        origin = query.get("origin", [""])[0]
+        space_id = query.get("spaceId", [""])[0]
+        thread_id = query.get("threadId", [""])[0]
+        if parsed.path == "/v1/packages":
+            packages = target_packages(self.server.workspace, origin, space_id, thread_id)
+            self.send_json(HTTPStatus.OK, {"packages": [package_summary(package) for package in packages]})
+            return
+        package_match = re.fullmatch(r"/v1/packages/([^/]+)", parsed.path)
+        if package_match:
+            try:
+                package_id = urllib.parse.unquote(package_match.group(1))
+                package = refresh_expired_claim(
+                    package_path(self.server.workspace, package_id),
+                    read_json(package_path(self.server.workspace, package_id)),
+                )
+                if not target_matches(package, origin, space_id, thread_id):
+                    raise BridgeError("Current page does not match the package target")
+                self.send_json(HTTPStatus.OK, public_package(package, self.server.server_port))
+            except BridgeError:
+                self.send_json(HTTPStatus.NOT_FOUND, {"error": "package-not-found"})
+            return
         asset_match = re.fullmatch(r"/v1/packages/([^/]+)/assets/([^/]+)", parsed.path)
         if asset_match:
             package_id = urllib.parse.unquote(asset_match.group(1))
@@ -627,7 +659,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 client_id = str(body.get("clientId", ""))
                 if not client_id:
                     raise BridgeError("clientId is required")
-                if package.get("status") not in ("ready", "claimed"):
+                if package.get("status") not in ("ready", "claimed", "injected", "failed"):
                     raise BridgeError(f"Package status is {package.get('status')}")
                 existing_claim = package.get("claim")
                 if (

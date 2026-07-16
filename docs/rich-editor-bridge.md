@@ -71,7 +71,7 @@ Text blocks: `heading`, `paragraph`, `quote`, `bulletList`, `numberList`, and
 and background hex colors, font size, and alignment. An `image` block references
 a file below the selected assets directory and can set caption and width.
 
-## Ready operation
+## Ready operation and manual versions
 
 ```powershell
 python <plugin>/scripts/kintone_article_bridge.py mark-ready `
@@ -82,27 +82,21 @@ python <plugin>/scripts/kintone_article_bridge.py mark-ready `
   --target customer-news
 ```
 
-With `Ready 后自动注入` enabled, the userscript polls and injects the matching
-package. With it disabled, click `手动注入 Ready 文章`. A missing Ready package,
-target mismatch, upload failure, or selector failure is shown in the panel
-without publishing anything.
-
-## Local-authoritative editing session
-
-Keep `article.id` stable while revising one article. After each local revision,
-run `mark-ready` again. The companion treats the exact target plus `article.id`
-as one active editing session: a newer local hash replaces the entire
-unpublished kintone editor, including its ordered images. Do not hand-edit the
-mirrored kintone content; the next local revision deliberately overwrites it.
-
-A different article never replaces a non-empty editor. The session ends only
-after kintone has completed publication and removed its native editor. A failed
-Publish leaves the editor and its local-authoritative session active.
+Every distinct article version remains available in the local Bridge. On the
+exact target page, click `刷新版本` to discover the local Bridge and list those
+versions, then click `应用 v001` (or another version) to write that version into
+the open native editor. Nothing discovers ports, polls the Bridge, or injects
+content in the background. A target mismatch, upload failure, or selector
+failure is shown in the panel without publishing anything.
 
 kintone requires one real user gesture before it creates the rich comment
-editor. If the page still shows the collapsed `发表评论…` entry, click it once.
-The package remains Ready while the entry is collapsed; after the rich editor
-appears, automatic mode continues with upload and injection on the next poll.
+editor. If the page still shows the collapsed `发表评论…` entry, click it once,
+then explicitly click the desired version in the panel.
+
+The userscript reuses an uploaded image only while that same native editor is
+open, and only when both the local asset digest and rendered width are unchanged.
+Changing the image or width, closing/canceling the editor, or reloading the page
+uploads it again.
 
 ## Local companion userscript
 
@@ -125,15 +119,16 @@ The companion metadata covers normal and SecureAccess-style hosts for
 
 This is a local Tampermonkey installation, not a Store release. `pnpm dev` is
 for selector debugging; install the `pnpm build` artifact for normal testing.
-The plugin starts the Bridge on demand, while the companion discovers the
-active Bridge in the fixed loopback range and verifies its health token. No
-port entry is required.
+The plugin starts the Bridge on demand. The companion discovers the active
+Bridge in the fixed loopback range only after the user clicks `刷新版本`, then
+verifies its health token. No port entry is required.
 
 ## Safety and compatibility
 
 - The script never clicks the native publish button.
-- It refuses to overwrite a non-empty editor.
-- Package claims and local deduplication prevent repeated injection.
+- It writes only after an explicit version button click, which may replace the
+  current editor content.
+- Package claims and local deduplication keep each version traceable.
 - kintone editor DOM and `/k/api/blob/upload.json` are internal Web behavior and
   may need adaptation after kintone changes.
 - The REST publisher is retained for plain text plus up to five trailing files.

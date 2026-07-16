@@ -120,14 +120,19 @@ python <plugin>/scripts/kintone_article_bridge.py mark-ready --workspace . --art
 
 This starts or reuses the Bridge. It does not create a Windows startup service.
 
-## 8. Inject And Review
+## 8. Select A Version And Review
 
 Open or refresh the exact target Space thread.
 
+- Click `刷新版本` in the companion panel to read retained local article versions
+  for this exact Space thread. This is the only time the companion discovers the
+  local Bridge.
 - If the page still shows `发表评论…`, click that native entry once so kintone
-  creates the rich editor. The Ready package is not claimed before this step.
-- If `Ready 后自动注入` is on, the article is injected when the expanded editor is detected.
-- If it is off, click `手动注入 Ready 文章`.
+  creates the rich editor.
+- Click the desired `应用 v001` (or another version) button. Clicking a version
+  again, or clicking a different version, replaces the editor content.
+- Unchanged images at the same width reuse their temporary upload only while the
+  same editor stays open; canceling/closing it or reloading uploads them again.
 - Check all text, formats, links, images, and captions.
 - Click kintone's native publish button yourself only when correct.
 
@@ -135,13 +140,13 @@ Open or refresh the exact target Space thread.
 
 For one article, keep the same `id` in its rich JSON and change its `version`
 or content when revising. Run `mark-ready` again after every local revision.
-The companion replaces the full unpublished editor with that newer local
-revision. Treat the local JSON as authoritative: do not manually edit the
-mirrored kintone text, because the next sync overwrites it.
+All retained revisions appear after `刷新版本`. Select the version to apply;
+there is no background sync. Treat the local JSON as authoritative and avoid
+manually editing the mirrored kintone text.
 
-After a successful native Publish, kintone removes the editor and the local
-editing session ends. If Publish fails and the editor remains, the session
-continues and can receive another local revision.
+After a successful native Publish, kintone removes the editor. If Publish fails
+and the editor remains, choose any retained version again when you want to
+replace its contents.
 
 ## REST Fallback
 
