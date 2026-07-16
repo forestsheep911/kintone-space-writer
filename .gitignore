@@ -10,3 +10,4 @@ outputs/
 local-runs/
 dist/
 /plugins/kintone-space-writer/kintone-targets.yaml
+/userscript/kintone-space-writer/vite-dev.*.log

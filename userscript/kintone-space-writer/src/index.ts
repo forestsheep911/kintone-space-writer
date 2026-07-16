@@ -1,5 +1,7 @@
 import { GM_getValue, GM_setValue, GM_xmlhttpRequest } from '$'
 
+import { isReadyCheckDue, nextDiscoveryDelay } from './bridge-polling'
+
 type TextBlock = {
   type: 'heading' | 'paragraph' | 'quote' | 'bulletList' | 'numberList' | 'divider'
   text?: string
@@ -107,11 +109,15 @@ let busy = false
 let connections: BridgeConnection[] = []
 let lastDiscovery = 0
 let lastConnectedAt = 0
+let lastReadyCheckAt = 0
+let discoveryFailures = 0
+let nextDiscoveryAt = 0
 let discoveryInFlight: Promise<BridgeConnection[]> | null = null
 let pollTimer: number | null = null
 
 function debugStage(stage: string, message: string, detail?: Record<string, unknown>) {
   if (!DEV_MODE) return
+  if (/^(HTTP|C\d|D[23])/.test(stage)) return
   console.info(`[KSW ${DEV_LABEL}] ${stage} ${message}`, detail ?? '')
   renderMessage(`[${stage}] ${message}`, 'working')
 }
@@ -238,10 +244,14 @@ async function performDiscovery(force: boolean) {
   if (found.length) {
     connections = found
     lastConnectedAt = completedAt
+    discoveryFailures = 0
+    nextDiscoveryAt = 0
   } else if (previousConnections.length && completedAt - lastConnectedAt < CONNECTION_GRACE_MS) {
     connections = previousConnections
   } else {
     connections = []
+    nextDiscoveryAt = completedAt + nextDiscoveryDelay(discoveryFailures)
+    discoveryFailures += 1
   }
   lastDiscovery = now
   GM_setValue(PORTS_KEY, connections.map((connection) => connection.port))
@@ -257,7 +267,7 @@ async function performDiscovery(force: boolean) {
 
 async function discoverBridges(force = false) {
   const now = Date.now()
-  if (!force && connections.length && now - lastDiscovery < DISCOVERY_INTERVAL_MS) return connections
+  if (!force && (now < nextDiscoveryAt || now - lastDiscovery < DISCOVERY_INTERVAL_MS)) return connections
   if (discoveryInFlight) return discoveryInFlight
   discoveryInFlight = performDiscovery(force)
   try {
@@ -641,7 +651,8 @@ function renderMessage(message: string, kind: 'normal' | 'working' | 'success' |
 }
 
 async function checkAndInject(manual: boolean) {
-  if (busy) return
+  const now = Date.now()
+  if (busy || !isReadyCheckDue(lastReadyCheckAt, now, manual)) return
   const page = currentTarget()
   if (!page) return
   busy = true
@@ -654,6 +665,7 @@ async function checkAndInject(manual: boolean) {
       renderMessage('Bridge 离线。请先调用插件准备文章。', manual ? 'error' : 'normal')
       return
     }
+    lastReadyCheckAt = now
     const match = await findReady(page, bridges)
     if (!match) {
       renderMessage(manual ? '当前目标没有 Ready 草稿。' : '等待当前目标的 Ready 草稿。', manual ? 'warning' : 'normal')
