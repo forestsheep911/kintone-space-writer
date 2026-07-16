@@ -1,5 +1,6 @@
 import { GM_getValue, GM_setValue, GM_xmlhttpRequest } from '$'
 
+import { clampPanelPosition, type PanelPosition } from './panel-position'
 import { imageCacheKey, newestVersionsFirst, type VersionSummary } from './version-picker'
 
 type TextBlock = {
@@ -111,6 +112,7 @@ const PORT_START = 8787
 const PORT_END = 8807
 const CLIENT_KEY = 'ksw-standard-client-id'
 const PORTS_KEY = 'ksw-standard-bridge-ports'
+const PANEL_STATE_KEY = 'ksw-standard-panel-state'
 const DEV_MODE = import.meta.env.DEV
 const DEV_LABEL = 'DEV 0.2.5'
 
@@ -120,6 +122,8 @@ let connections: BridgeConnection[] = []
 let discoveryInFlight: Promise<BridgeConnection[]> | null = null
 let versionMatches: VersionMatch[] = []
 let imageFileKeys = new Map<string, string>()
+
+type PanelState = PanelPosition & { collapsed: boolean }
 
 function debugStage(_stage: string, _message: string, _detail?: Record<string, unknown>) {}
 
@@ -639,13 +643,70 @@ async function applyVersion(match: VersionMatch) {
   }
 }
 
+function panelState(): PanelState | null {
+  const value = GM_getValue<PanelState | null>(PANEL_STATE_KEY, null)
+  return value && Number.isFinite(value.left) && Number.isFinite(value.top) ? value : null
+}
+
+function clampAndSavePanelPosition(root: HTMLElement, collapsed = root.dataset.collapsed === 'true') {
+  const state = panelState()
+  const initial = state ?? { left: window.innerWidth - root.offsetWidth - 16, top: 16, collapsed }
+  const position = clampPanelPosition(initial, { width: window.innerWidth, height: window.innerHeight }, { width: root.offsetWidth, height: root.offsetHeight })
+  root.style.left = `${position.left}px`
+  root.style.right = 'auto'
+  root.style.top = `${position.top}px`
+  GM_setValue(PANEL_STATE_KEY, { ...position, collapsed })
+}
+
+function setPanelCollapsed(root: HTMLElement, collapsed: boolean) {
+  root.dataset.collapsed = String(collapsed)
+  const button = root.querySelector<HTMLButtonElement>(`#${ROOT_ID}-collapse`)
+  if (button) {
+    button.textContent = collapsed ? '+' : '—'
+    button.title = collapsed ? '展开面板' : '最小化面板'
+  }
+  clampAndSavePanelPosition(root, collapsed)
+}
+
+function makePanelDraggable(root: HTMLElement) {
+  const header = root.querySelector<HTMLElement>(`#${ROOT_ID}-header`)
+  if (!header) return
+  header.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0 || (event.target instanceof Element && event.target.closest('button'))) return
+    const start = { x: event.clientX - root.offsetLeft, y: event.clientY - root.offsetTop }
+    const move = (moveEvent: PointerEvent) => {
+      const position = clampPanelPosition(
+        { left: moveEvent.clientX - start.x, top: moveEvent.clientY - start.y },
+        { width: window.innerWidth, height: window.innerHeight },
+        { width: root.offsetWidth, height: root.offsetHeight },
+      )
+      root.style.left = `${position.left}px`
+      root.style.right = 'auto'
+      root.style.top = `${position.top}px`
+    }
+    const end = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', end)
+      clampAndSavePanelPosition(root)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', end)
+  })
+}
+
 function injectStyles() {
   if (document.querySelector(`#${STYLE_ID}`)) return
   const style = document.createElement('style')
   style.id = STYLE_ID
   style.textContent = `
     #${ROOT_ID} { background:#fff; border:1px solid #cbd5e1; border-radius:8px; box-shadow:0 10px 28px rgba(15,23,42,.18); color:#0f172a; font:13px/1.45 system-ui,sans-serif; padding:13px; position:fixed; right:16px; top:16px; width:260px; z-index:2147483646; }
-    #${ROOT_ID} h2 { font-size:15px; margin:0 0 10px; }
+    #${ROOT_ID}-header { align-items:center; cursor:grab; display:flex; gap:8px; justify-content:space-between; margin-bottom:10px; user-select:none; }
+    #${ROOT_ID}-header:active { cursor:grabbing; }
+    #${ROOT_ID}-title { font-size:15px; font-weight:700; }
+    #${ROOT_ID}-collapse { background:transparent; border:0; color:#334155; font-size:20px; line-height:18px; padding:0; width:22px; }
+    #${ROOT_ID}[data-collapsed="true"] { padding:9px 11px; width:auto; }
+    #${ROOT_ID}[data-collapsed="true"] #${ROOT_ID}-header { margin:0; }
+    #${ROOT_ID}[data-collapsed="true"] .panel-body { display:none; }
     #${ROOT_ID}-connection { align-items:center; color:#b91c1c; display:flex; gap:7px; margin-bottom:10px; }
     #${ROOT_ID}-connection::before { background:#dc2626; border-radius:50%; content:''; height:8px; width:8px; }
     #${ROOT_ID}-connection[data-online="true"] { color:#166534; }
@@ -671,15 +732,24 @@ function createPanel() {
   const root = document.createElement('aside')
   root.id = ROOT_ID
   root.innerHTML = `
-    <h2>文章版本${DEV_MODE ? ` <small style="color:#2563eb;font-size:11px">${DEV_LABEL}</small>` : ''}</h2>
-    <div id="${ROOT_ID}-connection" data-online="false">Bridge 离线</div>
-    <button id="${ROOT_ID}-refresh" type="button">刷新版本</button>
-    <div id="${ROOT_ID}-versions"></div>
-    <p id="${ROOT_ID}-message">点击“刷新版本”读取当前目标的本地文章。</p>
+    <div id="${ROOT_ID}-header">
+      <span id="${ROOT_ID}-title">文章版本${DEV_MODE ? ` <small style="color:#2563eb;font-size:11px">${DEV_LABEL}</small>` : ''}</span>
+      <button id="${ROOT_ID}-collapse" type="button" title="最小化面板">—</button>
+    </div>
+    <div class="panel-body">
+      <div id="${ROOT_ID}-connection" data-online="false">Bridge 离线</div>
+      <button id="${ROOT_ID}-refresh" type="button">刷新版本</button>
+      <div id="${ROOT_ID}-versions"></div>
+      <p id="${ROOT_ID}-message">点击“刷新版本”读取当前目标的本地文章。</p>
+    </div>
   `
   const refresh = root.querySelector<HTMLButtonElement>(`#${ROOT_ID}-refresh`)
+  const collapse = root.querySelector<HTMLButtonElement>(`#${ROOT_ID}-collapse`)
   refresh?.addEventListener('click', () => void refreshVersions())
+  collapse?.addEventListener('click', () => setPanelCollapsed(root, root.dataset.collapsed !== 'true'))
   document.body.append(root)
+  setPanelCollapsed(root, panelState()?.collapsed ?? false)
+  makePanelDraggable(root)
 }
 
 function maintainPage() {
@@ -702,4 +772,8 @@ const observer = new MutationObserver(() => {
 observer.observe(document.documentElement, { childList: true, subtree: true })
 window.addEventListener('hashchange', maintainPage)
 window.addEventListener('popstate', maintainPage)
+window.addEventListener('resize', () => {
+  const root = document.querySelector<HTMLElement>(`#${ROOT_ID}`)
+  if (root) clampAndSavePanelPosition(root)
+})
 maintainPage()
