@@ -14,7 +14,7 @@ article workspace
 127.0.0.1:8787..8807
        | exact origin + Space + Thread match
        v
-Store userscript -> kintone rich editor -> user review -> user clicks Publish
+local companion userscript -> kintone rich editor -> user review -> user clicks Publish
 ```
 
 The Bridge is not a Windows startup service. A plugin operation starts it
@@ -92,7 +92,7 @@ editor. If the page still shows the collapsed `发表评论…` entry, click it 
 The package remains Ready while the entry is collapsed; after the rich editor
 appears, automatic mode continues with upload and injection on the next poll.
 
-## Store userscript
+## Local companion userscript
 
 Build:
 
@@ -108,8 +108,14 @@ Install the generated file:
 plugins/kintone-space-writer/assets/userscript/kintone-space-writer.user.js
 ```
 
-The Store metadata covers normal and SecureAccess-style hosts for
+The companion metadata covers normal and SecureAccess-style hosts for
 `cybozu.com`, `cybozu.cn`, `kintone.com`, and `cybozu-dev.com`.
+
+This is a local Tampermonkey installation, not a Store release. `pnpm dev` is
+for selector debugging; install the `pnpm build` artifact for normal testing.
+The plugin starts the Bridge on demand, while the companion discovers the
+active Bridge in the fixed loopback range and verifies its health token. No
+port entry is required.
 
 ## Safety and compatibility
 

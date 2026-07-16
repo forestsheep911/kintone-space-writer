@@ -13,7 +13,7 @@ export default defineConfig(({ mode }) => ({
         // build upgrades the already-installed POC instead of creating a second script.
         name: {
           '': 'kintone-rich-editor-poc',
-          'zh-CN': 'kintone Space Writer（标准版）',
+          'zh-CN': 'kintone Space Writer（本地配套版）',
         },
         namespace: 'https://github.com/forestsheep911/codex-plugin-marketplace-2water',
         version: '0.2.5',

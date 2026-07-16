@@ -17,9 +17,10 @@ and trailing attachments.
 
 ## Standard Rich-Article Flow
 
-The Store userscript consumes `kintone-rich-article.v1` JSON from the local
-Bridge. Resolve `../../scripts/kintone_article_bridge.py` from this skill's
-directory; do not assume the plugin source is inside the article workspace.
+The locally installed companion userscript consumes `kintone-rich-article.v1`
+JSON from the local Bridge. Resolve `../../scripts/kintone_article_bridge.py`
+from this skill's directory; do not assume the plugin source is inside the
+article workspace.
 
 Before marking a draft Ready:
 
@@ -39,7 +40,9 @@ python <plugin>/scripts/kintone_article_bridge.py mark-ready --workspace . --art
 `mark-ready` is idempotent. A new version of the same article supersedes its old
 Ready package; the same unchanged version is not queued twice. The Bridge binds
 only to `127.0.0.1`, chooses an available port in 8787–8807, and exits after an
-idle period. Do not create a Windows startup task or long-running service.
+idle period. The companion discovers this bounded range through `/health` and
+uses its returned token, so users do not configure a port. Do not create a
+Windows startup task or long-running service.
 
 After Ready:
 

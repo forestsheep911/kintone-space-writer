@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         kintone-rich-editor-poc
-// @name:zh-CN   kintone Space Writer（标准版）
+// @name:zh-CN   kintone Space Writer（本地配套版）
 // @namespace    https://github.com/forestsheep911/codex-plugin-marketplace-2water
 // @version      0.2.5
 // @author       2water

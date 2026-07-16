@@ -2,7 +2,8 @@
 
 `kintone_article_bridge.py` is the standard rich-article handoff. It starts a
 loopback-only Bridge when needed, validates an ordered article JSON plus local
-images, and exposes one target-bound Ready package to the Store userscript.
+images, and exposes one target-bound Ready package to the locally installed
+companion userscript.
 It never clicks kintone's publish button.
 
 ```powershell

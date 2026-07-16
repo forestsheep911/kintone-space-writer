@@ -88,7 +88,7 @@ to receive the target. If the target is missing, give the plugin the full Space
 thread URL; it must confirm and save the origin, Space ID, and Thread ID before
 marking a draft Ready.
 
-## 5. Install The Store Userscript
+## 5. Install The Local Companion Userscript
 
 Install this file in Tampermonkey:
 
@@ -97,6 +97,10 @@ plugins/kintone-space-writer/assets/userscript/kintone-space-writer.user.js
 ```
 
 The panel appears only on matching Space thread pages.
+
+The artifact is installed locally in Tampermonkey; it is not fetched from a
+Store. The plugin starts the Bridge when an article is marked Ready, and the
+companion finds the active loopback port automatically.
 
 ## 6. Draft The Rich Article
 

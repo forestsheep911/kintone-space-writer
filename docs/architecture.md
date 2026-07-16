@@ -5,7 +5,8 @@
 V0.2 has two routes for comments on an existing kintone Space thread:
 
 1. Standard: an on-demand loopback Bridge hands an ordered rich article to a
-   Store userscript, which fills the native Web editor. The user publishes.
+   locally installed companion userscript, which fills the native Web editor.
+   The user publishes.
 2. Fallback: the public REST API posts plain text plus trailing attachments.
 
 Neither route updates a Space/thread body or creates a thread.
@@ -21,6 +22,12 @@ userscript must claim it before uploading images, refuses non-empty editors,
 records injected/failed results, and never activates Publish. Rich images use
 kintone's internal Web upload route and native temporary image DOM, so the REST
 fallback remains important if kintone changes that behavior.
+
+The companion is built locally with the plugin, rather than released through a
+public Store. The plugin starts the Bridge on demand; the companion probes only
+the bounded loopback range and verifies `/health` plus its token. Users never
+need to select or configure a port. A Vite development server is only used for
+selector debugging, not for normal handoff.
 
 ## REST Fallback API Shape
 

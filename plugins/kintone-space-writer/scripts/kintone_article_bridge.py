@@ -2,7 +2,8 @@
 """Local bridge between article workspaces and the kintone userscript.
 
 The bridge binds only to 127.0.0.1. It exposes Ready article packages to the
-Store userscript, but never publishes a kintone comment itself.
+locally installed companion userscript, but never publishes a kintone comment
+itself.
 """
 
 from __future__ import annotations
