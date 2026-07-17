@@ -4,9 +4,37 @@ import { editorSessionChanged } from './editor-image-session'
 import { clampPanelPosition, type PanelPosition } from './panel-position'
 import { imageCacheKey, newestVersionsFirst, type VersionSummary } from './version-picker'
 
+type MentionEntityType = 'USER' | 'GROUP' | 'ORGANIZATION'
+
+type MentionRequest = {
+  query: string
+  entityType?: MentionEntityType
+}
+
+type MentionCandidate = {
+  entityType: MentionEntityType
+  id: string
+  code: string
+  name: string
+  icon?: string
+}
+
+type TextRun = {
+  text?: string
+  mention?: MentionRequest
+  bold?: boolean
+  italic?: boolean
+  underline?: boolean
+  link?: string
+  color?: string
+  backgroundColor?: string
+  fontSize?: 1 | 2 | 3 | 4 | 5 | 6 | 7
+}
+
 type TextBlock = {
   type: 'heading' | 'paragraph' | 'quote' | 'bulletList' | 'numberList' | 'divider'
   text?: string
+  runs?: TextRun[]
   items?: string[]
   level?: 1 | 2 | 3
   bold?: boolean
@@ -27,22 +55,21 @@ type ImageBlock = {
   width?: number
 }
 
-type ArticleBlock = TextBlock | ImageBlock
+type ImageRowBlock = {
+  type: 'imageRow'
+  images: ImageBlock[]
+  align?: 'left' | 'center' | 'right'
+}
+
+type ArticleBlock = TextBlock | ImageBlock | ImageRowBlock
 
 type RichArticle = {
   schema: 'kintone-rich-article.v1'
   id?: string
   version?: string
   title?: string
+  revisionNote?: string
   blocks: ArticleBlock[]
-}
-
-type PackageTarget = {
-  alias: string
-  label?: string | null
-  origins: string[]
-  spaceId: string
-  threadId: string
 }
 
 type BridgePackage = {
@@ -51,7 +78,6 @@ type BridgePackage = {
   version: string
   hash: string
   status: 'ready' | 'claimed' | 'injected' | 'failed'
-  target: PackageTarget
   article: RichArticle
   assets: Record<string, string>
   assetDigests: Record<string, string>
@@ -61,6 +87,7 @@ type BridgePackageSummary = VersionSummary & {
   id: string
   articleId: string | null
   title: string | null
+  revisionNote: string | null
   version: string
   hash: string
   status: BridgePackage['status']
@@ -70,6 +97,12 @@ type BridgePackageSummary = VersionSummary & {
 type VersionMatch = VersionSummary & {
   connection: BridgeConnection
   summary: BridgePackageSummary
+}
+
+type ArticleVersionGroup = {
+  articleId: string
+  title: string
+  versions: VersionMatch[]
 }
 
 type BridgeHealth = {
@@ -84,12 +117,6 @@ type BridgeConnection = {
   port: number
   token: string
   instanceId: string
-}
-
-type PageTarget = {
-  origin: string
-  spaceId: string
-  threadId: string
 }
 
 type EditorCandidate = {
@@ -124,6 +151,10 @@ let discoveryInFlight: Promise<BridgeConnection[]> | null = null
 let versionMatches: VersionMatch[] = []
 let imageFileKeys = new Map<string, string>()
 let imageCacheEditor: HTMLElement | null = null
+let reusableImagePackageIds = new Set<string>()
+let collapsedArticleIds = new Set<string>()
+let writeAbortController: AbortController | null = null
+let mentionSelection: { resolve: (candidate: MentionCandidate) => void; reject: (error: Error) => void } | null = null
 
 type PanelState = PanelPosition & { collapsed: boolean }
 
@@ -131,12 +162,6 @@ function debugStage(_stage: string, _message: string, _detail?: Record<string, u
 
 function isThreadPage() {
   return /\/space\/\d+\/thread\/\d+/i.test(location.href)
-}
-
-function currentTarget(): PageTarget | null {
-  const match = location.href.match(/\/space\/(\d+)\/thread\/(\d+)/i)
-  if (!match) return null
-  return { origin: location.origin.toLowerCase(), spaceId: match[1], threadId: match[2] }
 }
 
 function clientId() {
@@ -242,8 +267,8 @@ function authorizedBridgeUrl(connection: BridgeConnection, value: string) {
   return url.href
 }
 
-async function listVersions(connection: BridgeConnection, target: PageTarget): Promise<BridgePackageSummary[]> {
-  const query = new URLSearchParams({ ...target, bridgeToken: connection.token })
+async function listVersions(connection: BridgeConnection): Promise<BridgePackageSummary[]> {
+  const query = new URLSearchParams({ bridgeToken: connection.token })
   const response = await gmRequest<{ packages?: BridgePackageSummary[]; error?: string }>({
     url: `http://127.0.0.1:${connection.port}/v1/packages?${query}`,
     timeout: 10000,
@@ -252,8 +277,8 @@ async function listVersions(connection: BridgeConnection, target: PageTarget): P
   return response.response.packages ?? []
 }
 
-async function getPackage(connection: BridgeConnection, target: PageTarget, packageId: string): Promise<BridgePackage> {
-  const query = new URLSearchParams({ ...target, bridgeToken: connection.token })
+async function getPackage(connection: BridgeConnection, packageId: string): Promise<BridgePackage> {
+  const query = new URLSearchParams({ bridgeToken: connection.token })
   const response = await gmRequest<BridgePackage | { error?: string }>({
     url: `http://127.0.0.1:${connection.port}/v1/packages/${encodeURIComponent(packageId)}?${query}`,
     timeout: 10000,
@@ -280,15 +305,6 @@ async function postBridge(
     throw new Error(response.response?.error || `Bridge 写入失败：HTTP ${response.status}`)
   }
   return response.response
-}
-
-function targetMatches(packageTarget: PackageTarget, page: PageTarget) {
-  const origins = packageTarget.origins.map((value) => value.replace(/\/$/, '').toLowerCase())
-  return (
-    origins.includes(page.origin) &&
-    String(packageTarget.spaceId) === page.spaceId &&
-    String(packageTarget.threadId) === page.threadId
-  )
 }
 
 function isVisible(element: HTMLElement) {
@@ -386,30 +402,62 @@ function safeColor(value?: string) {
   return value && /^#[0-9a-f]{6}$/i.test(value) ? value : ''
 }
 
-function textMarkup(block: TextBlock) {
-  const text = escapeText(block.text ?? '')
-  const link = block.link ? safeLink(block.link) : ''
+function mentionMarkup(candidate: MentionCandidate) {
+  const mention = document.createElement('a')
+  mention.className = 'ocean-ui-plugin-mention-user ocean-ui-plugin-linkbubble-no'
+  mention.dataset.mentionCode = candidate.code
+  mention.dataset.mentionIcon = candidate.icon ?? ''
+  mention.dataset.mentionName = candidate.name
+  mention.tabIndex = -1
+  mention.style.setProperty('-webkit-user-modify', 'read-only')
+  if (candidate.entityType === 'USER') {
+    mention.dataset.mentionId = candidate.id
+    mention.href = `/k/#/people/user/${encodeURIComponent(candidate.code)}`
+  } else if (candidate.entityType === 'GROUP') {
+    mention.dataset.groupMentionId = candidate.id
+    mention.href = '#'
+  } else {
+    mention.dataset.orgMentionId = candidate.id
+    mention.href = '#'
+  }
+  mention.textContent = `@${candidate.name}`
+  return `${mention.outerHTML}&nbsp;`
+}
+
+function inlineTextMarkup(value: TextRun | TextBlock, mentions = new Map<TextRun, MentionCandidate>()) {
+  if ('mention' in value && value.mention) {
+    const candidate = mentions.get(value)
+    if (!candidate) throw new Error(`尚未解析提及对象：${value.mention.query}`)
+    return mentionMarkup(candidate)
+  }
+  const text = escapeText(value.text ?? '')
+  const link = value.link ? safeLink(value.link) : ''
   const linked = link
     ? `<a href="${link.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" target="_blank" rel="noopener noreferrer">${text}</a>`
     : text
-  const color = safeColor(block.color)
-  const backgroundColor = safeColor(block.backgroundColor)
+  const color = safeColor(value.color)
+  const backgroundColor = safeColor(value.backgroundColor)
   const inlineStyle = [color && `color:${color}`, backgroundColor && `background-color:${backgroundColor}`]
     .filter(Boolean)
     .join(';')
   const colored = inlineStyle ? `<span style="${inlineStyle}">${linked}</span>` : linked
-  const sized = block.fontSize ? `<font size="${block.fontSize}">${colored}</font>` : colored
-  const styled = `${block.bold ? '<strong>' : ''}${block.italic ? '<em>' : ''}${block.underline ? '<u>' : ''}${sized}${block.underline ? '</u>' : ''}${block.italic ? '</em>' : ''}${block.bold ? '</strong>' : ''}`
-  const alignment = block.align && ['left', 'center', 'right'].includes(block.align) ? ` style="text-align:${block.align}"` : ''
+  const sized = value.fontSize ? `<font size="${value.fontSize}">${colored}</font>` : colored
+  return `${value.bold ? '<strong>' : ''}${value.italic ? '<em>' : ''}${value.underline ? '<u>' : ''}${sized}${value.underline ? '</u>' : ''}${value.italic ? '</em>' : ''}${value.bold ? '</strong>' : ''}`
+}
+
+function textMarkup(block: TextBlock, mentions: Map<TextRun, MentionCandidate>) {
+  const styled = block.runs?.length ? block.runs.map((run) => inlineTextMarkup(run, mentions)).join('') : inlineTextMarkup(block)
+  const align = block.align && ['left', 'center', 'right'].includes(block.align) ? block.align : 'left'
+  const alignment = ` style="text-align:${align}"`
   switch (block.type) {
     case 'heading':
       return `<div${alignment}><font size="${block.level === 1 ? 6 : block.level === 3 ? 4 : 5}"><strong>${styled}</strong></font></div><div><br></div>`
     case 'quote':
       return `<div${alignment}>「${styled}」</div><div><br></div>`
     case 'bulletList':
-      return `<ul>${(block.items ?? []).map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul><div><br></div>`
+      return `<ul${alignment}>${(block.items ?? []).map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul><div><br></div>`
     case 'numberList':
-      return `<ol>${(block.items ?? []).map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ol><div><br></div>`
+      return `<ol${alignment}>${(block.items ?? []).map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ol><div><br></div>`
     case 'divider':
       return '<div>────────</div><div><br></div>'
     default:
@@ -423,6 +471,127 @@ function getRequestToken() {
   return pageWindow.kintone?.getRequestToken?.() || document.querySelector<HTMLInputElement>('input[name="__REQUEST_TOKEN__"]')?.value || ''
 }
 
+function currentSpaceId() {
+  const match = location.hash.match(/\/space\/(\d+)/i)
+  if (!match) throw new Error('无法从当前页面识别 Space。')
+  return match[1]
+}
+
+function candidateMatchesRequest(candidate: MentionCandidate, request: MentionRequest) {
+  if (request.entityType && candidate.entityType !== request.entityType) return false
+  const query = request.query.trim().toLocaleLowerCase()
+  return candidate.name.toLocaleLowerCase() === query || candidate.code.toLocaleLowerCase() === query
+}
+
+async function searchMentionCandidates(request: MentionRequest, signal: AbortSignal) {
+  throwIfWriteCancelled(signal)
+  const response = await fetch(`/k/api/directory/search.json?_ref=${encodeURIComponent(location.href)}`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ spaceId: currentSpaceId(), appId: null, recordId: null, term: request.query }),
+    signal,
+  })
+  if (!response.ok) throw new Error(`提及对象搜索失败：HTTP ${response.status}`)
+  const payload = await response.json() as {
+    success?: boolean
+    result?: { users?: Array<Record<string, unknown>>; groups?: Array<Record<string, unknown>>; orgs?: Array<Record<string, unknown>> }
+  }
+  if (!payload.success || !payload.result) throw new Error('提及对象搜索没有返回结果。')
+  const asCandidates = (entities: Array<Record<string, unknown>> | undefined, entityType: MentionEntityType) => (entities ?? [])
+    .filter((entity) => typeof entity.id === 'string' && typeof entity.code === 'string' && typeof entity.name === 'string')
+    .map((entity) => ({
+      entityType,
+      id: String(entity.id),
+      code: String(entity.code),
+      name: String(entity.name),
+      icon: entityType === 'USER' && typeof (entity.photo as { original?: unknown } | undefined)?.original === 'string'
+        ? String((entity.photo as { original: string }).original)
+        : '',
+    }))
+  return [
+    ...asCandidates(payload.result.users, 'USER'),
+    ...asCandidates(payload.result.groups, 'GROUP'),
+    ...asCandidates(payload.result.orgs, 'ORGANIZATION'),
+  ].filter((candidate) => !request.entityType || candidate.entityType === request.entityType)
+}
+
+async function pickMentionCandidate(candidate: MentionCandidate, signal: AbortSignal) {
+  const token = getRequestToken()
+  if (!token) throw new Error('无法取得 kintone 请求令牌，不能确认提及对象。')
+  const response = await fetch(`/k/api/user/pick.json?_ref=${encodeURIComponent(location.href)}`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entities: [{ entityType: candidate.entityType, entityId: candidate.id }], __REQUEST_TOKEN__: token }),
+    signal,
+  })
+  if (!response.ok) throw new Error(`提及对象确认失败：HTTP ${response.status}`)
+  const payload = await response.json() as { success?: boolean }
+  if (!payload.success) throw new Error('kintone 没有确认提及对象。')
+}
+
+function renderMentionPicker(candidates: MentionCandidate[]) {
+  const element = document.querySelector<HTMLElement>(`#${ROOT_ID}-mention-picker`)
+  if (!element) return
+  element.replaceChildren()
+  if (!mentionSelection) {
+    element.hidden = true
+    return
+  }
+  element.hidden = false
+  const title = document.createElement('strong')
+  title.textContent = '请选择提及对象'
+  element.append(title)
+  for (const candidate of candidates) {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'mention-candidate'
+    const kind = candidate.entityType === 'USER' ? '人' : candidate.entityType === 'GROUP' ? '组' : '组织'
+    button.textContent = `${candidate.name} · ${kind}`
+    button.title = candidate.code
+    button.addEventListener('click', () => mentionSelection?.resolve(candidate))
+    element.append(button)
+  }
+}
+
+function chooseMentionCandidate(candidates: MentionCandidate[], signal: AbortSignal) {
+  return new Promise<MentionCandidate>((resolve, reject) => {
+    const abort = () => {
+      if (mentionSelection) mentionSelection = null
+      renderMentionPicker([])
+      reject(new Error('已取消本次写入。'))
+    }
+    signal.addEventListener('abort', abort, { once: true })
+    mentionSelection = {
+      resolve: (candidate) => {
+        signal.removeEventListener('abort', abort)
+        mentionSelection = null
+        renderMentionPicker([])
+        resolve(candidate)
+      },
+      reject,
+    }
+    renderMentionPicker(candidates)
+  })
+}
+
+async function resolveArticleMentions(article: RichArticle, signal: AbortSignal) {
+  const mentions = new Map<TextRun, MentionCandidate>()
+  const runs = article.blocks.flatMap((block) => 'runs' in block && Array.isArray(block.runs) ? block.runs : [])
+  for (const run of runs) {
+    if (!run.mention) continue
+    renderMessage(`正在搜索提及对象：${run.mention.query}`, 'working')
+    const candidates = await searchMentionCandidates(run.mention, signal)
+    if (!candidates.length) throw new Error(`没有找到可提及的对象：${run.mention.query}`)
+    const exact = candidates.filter((candidate) => candidateMatchesRequest(candidate, run.mention!))
+    const candidate = exact.length === 1 ? exact[0] : await chooseMentionCandidate(candidates, signal)
+    await pickMentionCandidate(candidate, signal)
+    mentions.set(run, candidate)
+  }
+  return mentions
+}
+
 function imageWidth(block: ImageBlock) {
   const width = block.width ?? 500
   return Number.isInteger(width) && width >= 100 && width <= 750 ? width : 500
@@ -432,7 +601,9 @@ async function loadAsset(
   connection: BridgeConnection,
   packageValue: BridgePackage,
   block: ImageBlock,
+  signal: AbortSignal,
 ) {
+  throwIfWriteCancelled(signal)
   const url = packageValue.assets[block.fileName]
   if (!url) throw new Error(`Bridge 没有提供图片：${block.fileName}`)
   const response = await gmRequest<Blob>({
@@ -443,10 +614,16 @@ async function loadAsset(
   if (response.status !== 200 || !(response.response instanceof Blob)) {
     throw new Error(`读取本地图片失败：${block.fileName}`)
   }
+  throwIfWriteCancelled(signal)
   return new File([response.response], block.fileName, { type: response.response.type || 'application/octet-stream' })
 }
 
-async function uploadImage(file: File, block: ImageBlock) {
+function throwIfWriteCancelled(signal: AbortSignal) {
+  if (signal.aborted) throw new Error('已取消本次写入。')
+}
+
+async function uploadImage(file: File, block: ImageBlock, signal: AbortSignal) {
+  throwIfWriteCancelled(signal)
   const token = getRequestToken()
   if (!token) throw new Error('无法取得 kintone 请求令牌。')
   const width = imageWidth(block)
@@ -458,6 +635,7 @@ async function uploadImage(file: File, block: ImageBlock) {
     credentials: 'same-origin',
     headers: { 'X-Cybozu-RequestToken': token },
     body: form,
+    signal,
   })
   if (!response.ok) throw new Error(`图片上传失败：HTTP ${response.status}`)
   const payload = (await response.json()) as { success?: boolean; result?: { fileKey?: string; image?: boolean } }
@@ -480,40 +658,75 @@ function imageMarkup(block: ImageBlock, fileKey: string, width: number) {
   return `<div>${image.outerHTML}<br></div>${caption}<div><br></div>`
 }
 
+function imageRowMarkup(block: ImageRowBlock, images: Array<{ block: ImageBlock; fileKey: string; width: number }>) {
+  const alignment = block.align && ['left', 'center', 'right'].includes(block.align) ? block.align : 'left'
+  const contents = images.map(({ block: imageBlock, fileKey, width }) => {
+    const original = new URLSearchParams({ fileKey, _ref: location.href })
+    const preview = new URLSearchParams({ fileKey, w: String(width), _ref: location.href })
+    const image = document.createElement('img')
+    image.className = 'cybozu-tmp-file'
+    image.dataset.original = `/k/api/blob/download.do?${original}`
+    image.dataset.file = fileKey
+    image.width = width
+    image.src = `/k/api/blob/download.do?${preview}`
+    image.title = imageBlock.alt ?? ''
+    return image.outerHTML
+  }).join('')
+  const captions = images.map(({ block: imageBlock }) => imageBlock.caption).filter(Boolean).join('　·　')
+  const captionMarkup = captions ? `<div style="text-align:${alignment}">${escapeHtml(captions)}</div>` : ''
+  return `<div style="text-align:${alignment}">${contents}<br></div>${captionMarkup}<div><br></div>`
+}
+
 function validateArticle(article: RichArticle) {
   if (article.schema !== 'kintone-rich-article.v1' || !Array.isArray(article.blocks) || !article.blocks.length) {
     throw new Error('Ready 草稿的文章格式无效。')
   }
   article.blocks.forEach((block, index) => {
     if (block.type === 'image' && !block.fileName) throw new Error(`第 ${index + 1} 个图片块缺少 fileName。`)
+    if (block.type === 'imageRow' && (!Array.isArray(block.images) || block.images.length < 2 || block.images.some((image) => !image.fileName))) {
+      throw new Error(`第 ${index + 1} 个图片行至少需要两张图片。`)
+    }
+    if ('runs' in block && block.runs?.some((run) => run.mention && (!run.mention.query.trim() || (run.mention.entityType && !['USER', 'GROUP', 'ORGANIZATION'].includes(run.mention.entityType))))) {
+      throw new Error(`第 ${index + 1} 个文本块包含无效的提及对象。`)
+    }
   })
 }
 
-async function buildMarkup(connection: BridgeConnection, packageValue: BridgePackage) {
+async function buildMarkup(connection: BridgeConnection, packageValue: BridgePackage, signal: AbortSignal) {
   validateArticle(packageValue.article)
+  const mentions = await resolveArticleMentions(packageValue.article, signal)
   const chunks: string[] = []
-  const imageBlocks = packageValue.article.blocks.filter((block): block is ImageBlock => block.type === 'image')
+  const imageBlocks = packageValue.article.blocks.flatMap((block) => block.type === 'image' ? [block] : block.type === 'imageRow' ? block.images : [])
   let imageIndex = 0
+  let reusedImages = 0
   for (const block of packageValue.article.blocks) {
-    if (block.type !== 'image') {
-      chunks.push(textMarkup(block))
+    if (block.type !== 'image' && block.type !== 'imageRow') {
+      chunks.push(textMarkup(block, mentions))
       continue
     }
-    imageIndex += 1
-    renderMessage(`正在处理图片 ${imageIndex}/${imageBlocks.length}：${block.fileName}`, 'working')
-    const width = imageWidth(block)
-    const digest = packageValue.assetDigests[block.fileName]
-    const cacheKey = digest ? imageCacheKey(digest, width) : ''
-    let fileKey = cacheKey ? imageFileKeys.get(cacheKey) : undefined
-    if (!fileKey) {
-      const file = await loadAsset(connection, packageValue, block)
-      const upload = await uploadImage(file, block)
-      fileKey = upload.fileKey
-      if (cacheKey) imageFileKeys.set(cacheKey, fileKey)
+    const rowImages = block.type === 'imageRow' ? block.images : [block]
+    const renderedImages: Array<{ block: ImageBlock; fileKey: string; width: number }> = []
+    for (const imageBlock of rowImages) {
+      throwIfWriteCancelled(signal)
+      imageIndex += 1
+      renderMessage(`正在处理图片 ${imageIndex}/${imageBlocks.length}：${imageBlock.fileName}`, 'working')
+      const width = imageWidth(imageBlock)
+      const digest = packageValue.assetDigests[imageBlock.fileName]
+      const cacheKey = digest ? imageCacheKey(digest, width) : ''
+      let fileKey = cacheKey ? imageFileKeys.get(cacheKey) : undefined
+      if (fileKey) reusedImages += 1
+      if (!fileKey) {
+        const file = await loadAsset(connection, packageValue, imageBlock, signal)
+        const upload = await uploadImage(file, imageBlock, signal)
+        throwIfWriteCancelled(signal)
+        fileKey = upload.fileKey
+        if (cacheKey) imageFileKeys.set(cacheKey, fileKey)
+      }
+      renderedImages.push({ block: imageBlock, fileKey, width })
     }
-    chunks.push(imageMarkup(block, fileKey, width))
+    chunks.push(block.type === 'imageRow' ? imageRowMarkup(block, renderedImages) : imageMarkup(block, renderedImages[0].fileKey, renderedImages[0].width))
   }
-  return chunks.join('')
+  return { markup: chunks.join(''), reusedImages, imageCount: imageBlocks.length }
 }
 
 async function sendResult(
@@ -530,9 +743,7 @@ async function sendResult(
   })
 }
 
-async function applyPackage(connection: BridgeConnection, packageValue: BridgePackage) {
-  const page = currentTarget()
-  if (!page || !targetMatches(packageValue.target, page)) throw new Error('文章版本目标与当前页面不一致。')
+async function applyPackage(connection: BridgeConnection, packageValue: BridgePackage, signal: AbortSignal) {
   const target = await resolveEditor()
   if (!target || !target.isContentEditable) {
     renderMessage('请先点击页面里的“发表评论…”展开评论框，再点击该版本。', 'warning')
@@ -540,23 +751,34 @@ async function applyPackage(connection: BridgeConnection, packageValue: BridgePa
   }
   if (editorSessionChanged(imageCacheEditor, target)) {
     imageFileKeys.clear()
+    reusableImagePackageIds.clear()
     imageCacheEditor = target
   }
   await postBridge(connection, `/v1/packages/${encodeURIComponent(packageValue.id)}/claim`, {
     hash: packageValue.hash,
     clientId: clientId(),
-    ...page,
   })
   try {
-    const markup = await buildMarkup(connection, packageValue)
+    const rendered = await buildMarkup(connection, packageValue, signal)
+    throwIfWriteCancelled(signal)
     if (!target.isConnected) throw new Error('图片上传期间编辑器已被页面替换。')
     target.focus()
     document.execCommand('selectAll', false)
-    if (!document.execCommand('insertHTML', false, markup)) throw new Error('浏览器拒绝写入富文本编辑器。')
+    if (!document.execCommand('insertHTML', false, rendered.markup)) throw new Error('浏览器拒绝写入富文本编辑器。')
     target.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }))
     target.dispatchEvent(new Event('change', { bubbles: true }))
+    const expectedImages = packageValue.article.blocks.flatMap((block) => block.type === 'image' ? [block] : block.type === 'imageRow' ? block.images : [])
+    if (expectedImages.length) {
+      await delay(50)
+      const actualImages = target.querySelectorAll('img.cybozu-tmp-file').length
+      if (actualImages < expectedImages.length) {
+        throw new Error(`kintone 编辑器没有保留全部图片（预期 ${expectedImages.length} 张，实际 ${actualImages} 张）。`)
+      }
+    }
     await sendResult(connection, packageValue, 'injected')
-    renderMessage(`已应用“${packageValue.article.title ?? packageValue.id}” ${packageValue.version}。再次点击任一版本即可覆盖编辑器。`, 'success')
+    if (rendered.imageCount) reusableImagePackageIds.add(packageValue.id)
+    renderVersions()
+    renderMessage('')
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     try {
@@ -582,45 +804,109 @@ function renderMessage(message: string, kind: 'normal' | 'working' | 'success' |
   element.dataset.kind = kind
 }
 
+function renderWriteControls() {
+  const cancel = document.querySelector<HTMLButtonElement>(`#${ROOT_ID}-cancel`)
+  if (!cancel) return
+  const writing = Boolean(writeAbortController)
+  cancel.hidden = !writing
+  cancel.disabled = writeAbortController?.signal.aborted ?? false
+}
+
+function articleVersionGroups() {
+  const groups = new Map<string, ArticleVersionGroup>()
+  for (const version of newestVersionsFirst(versionMatches)) {
+    const articleId = version.summary.articleId || version.summary.id
+    const group = groups.get(articleId)
+    if (group) {
+      group.versions.push(version)
+    } else {
+      groups.set(articleId, {
+        articleId,
+        title: version.summary.title || articleId,
+        versions: [version],
+      })
+    }
+  }
+  return Array.from(groups.values())
+}
+
+function versionNote(match: BridgePackageSummary) {
+  if (match.revisionNote?.trim()) return match.revisionNote.trim()
+  return match.version === 'v001' ? '初稿' : '修订'
+}
+
 function renderVersions() {
   const element = document.querySelector<HTMLElement>(`#${ROOT_ID}-versions`)
   if (!element) return
+  const previousScrollTop = element.scrollTop
   if (!versionMatches.length) {
-    element.innerHTML = '<p class="empty">当前目标没有可用版本。</p>'
+    element.innerHTML = '<p class="empty">没有可用的本地版本。</p>'
     return
   }
   element.replaceChildren()
-  for (const selected of newestVersionsFirst(versionMatches)) {
-    const match = selected.summary
-    const row = document.createElement('div')
-    row.className = 'version-row'
-    row.dataset.current = String(match.status === 'injected')
-    const version = document.createElement('span')
-    version.className = 'version-tag'
-    version.textContent = match.version
+  const activeEditor = findEditorCandidates()[0]?.element ?? null
+  for (const group of articleVersionGroups()) {
+    const article = document.createElement('section')
+    article.className = 'article-group'
+    const isCollapsed = collapsedArticleIds.has(group.articleId)
+    article.dataset.collapsed = String(isCollapsed)
+    const toggle = document.createElement('button')
+    toggle.className = 'article-group-toggle'
+    toggle.type = 'button'
+    toggle.setAttribute('aria-expanded', String(!isCollapsed))
+    const chevron = document.createElement('span')
+    chevron.className = 'article-group-chevron'
+    chevron.textContent = isCollapsed ? '›' : '⌄'
     const title = document.createElement('strong')
-    title.className = 'version-title'
-    title.textContent = match.title || match.articleId || match.id
-    const meta = document.createElement('small')
-    meta.className = 'version-meta'
-    meta.textContent = `${match.updatedAt.replace('T', ' ').replace('+00:00', ' UTC')} · ${match.status === 'injected' ? '当前' : '待应用'}`
-    const button = document.createElement('button')
-    button.className = 'version-apply'
-    button.type = 'button'
-    button.textContent = match.status === 'injected' ? '重用' : '应用'
-    button.addEventListener('click', () => void applyVersion(selected))
-    const detail = document.createElement('div')
-    detail.className = 'version-detail'
-    detail.append(version, title, meta)
-    row.append(detail, button)
-    element.append(row)
+    title.className = 'article-group-title'
+    title.textContent = group.title
+    const count = document.createElement('span')
+    count.className = 'article-group-count'
+    count.textContent = `${group.versions.length} 个版本`
+    toggle.append(chevron, title, count)
+    toggle.addEventListener('click', () => {
+      if (collapsedArticleIds.has(group.articleId)) collapsedArticleIds.delete(group.articleId)
+      else collapsedArticleIds.add(group.articleId)
+      renderVersions()
+    })
+    const versions = document.createElement('div')
+    versions.className = 'article-version-list'
+    for (const selected of group.versions) {
+      const match = selected.summary
+      const row = document.createElement('div')
+      row.className = 'version-row'
+      const canReuseImages = imageCacheEditor === activeEditor && reusableImagePackageIds.has(match.id)
+      row.dataset.reusable = String(canReuseImages)
+      const version = document.createElement('span')
+      version.className = 'version-tag'
+      version.textContent = match.version
+      const note = document.createElement('span')
+      note.className = 'version-note'
+      note.textContent = versionNote(match)
+      const meta = document.createElement('small')
+      meta.className = 'version-meta'
+      meta.textContent = `${match.updatedAt.replace('T', ' ').replace('+00:00', ' UTC')}${canReuseImages ? ' · 图片可复用' : ''}`
+      const button = document.createElement('button')
+      button.className = 'version-apply'
+      button.type = 'button'
+      button.textContent = '写'
+      button.title = canReuseImages ? '写入当前编辑器；图片可直接复用' : '写入当前编辑器'
+      button.disabled = busy
+      button.addEventListener('click', () => void applyVersion(selected))
+      const detail = document.createElement('div')
+      detail.className = 'version-detail'
+      detail.append(note, version, meta)
+      row.append(detail, button)
+      versions.append(row)
+    }
+    article.append(toggle, versions)
+    element.append(article)
   }
+  element.scrollTop = previousScrollTop
 }
 
 async function refreshVersions() {
   if (busy) return
-  const page = currentTarget()
-  if (!page) return
   busy = true
   renderMessage('正在发现本地 Bridge 并读取版本…', 'working')
   try {
@@ -632,30 +918,40 @@ async function refreshVersions() {
       return
     }
     versionMatches = (await Promise.all(
-      bridges.map(async (connection) => (await listVersions(connection, page)).map((summary) => ({ ...summary, connection, summary }))),
+      bridges.map(async (connection) => (await listVersions(connection)).map((summary) => ({ ...summary, connection, summary }))),
     )).flat()
     renderVersions()
-    renderMessage(versionMatches.length ? `已读取 ${versionMatches.length} 个本地版本。` : '当前目标没有可用版本。', versionMatches.length ? 'success' : 'warning')
+    renderMessage(versionMatches.length ? `已读取 ${versionMatches.length} 个本地版本。` : '没有可用的本地版本。', versionMatches.length ? 'success' : 'warning')
   } catch (error) {
     renderMessage(error instanceof Error ? error.message : String(error), 'error')
   } finally {
     busy = false
+    renderVersions()
   }
 }
 
 async function applyVersion(match: VersionMatch) {
-  if (busy) return
-  const page = currentTarget()
-  if (!page) return
+  if (busy) {
+    renderMessage('正在写入另一篇文章；请先取消当前写入。', 'warning')
+    return
+  }
   busy = true
-  renderMessage(`正在读取并应用 ${match.summary.version}…`, 'working')
+  writeAbortController = new AbortController()
+  renderVersions()
+  renderWriteControls()
+  renderMessage(`正在写入 ${match.summary.version}…`, 'working')
   try {
-    const packageValue = await getPackage(match.connection, page, match.summary.id)
-    await applyPackage(match.connection, packageValue)
+    const packageValue = await getPackage(match.connection, match.summary.id)
+    throwIfWriteCancelled(writeAbortController.signal)
+    await applyPackage(match.connection, packageValue, writeAbortController.signal)
   } catch (error) {
-    renderMessage(error instanceof Error ? error.message : String(error), 'error')
+    if (writeAbortController.signal.aborted) renderMessage('已取消本次写入；编辑器没有被本次操作覆盖。', 'normal')
+    else renderMessage(error instanceof Error ? error.message : String(error), 'error')
   } finally {
     busy = false
+    writeAbortController = null
+    renderVersions()
+    renderWriteControls()
   }
 }
 
@@ -733,23 +1029,42 @@ function injectStyles() {
     #${ROOT_ID} button { cursor:pointer; font:inherit; }
     #${ROOT_ID}-refresh { background:transparent; border:1px solid #405475; border-radius:8px; color:#d8e5fb; font-weight:650; padding:8px 10px; width:100%; }
     #${ROOT_ID}-refresh:hover { background:#223149; border-color:#5d7eaf; }
+    #${ROOT_ID}-mention-picker { background:#1b2639; border:1px solid #315a93; border-radius:8px; color:#d8e5fb; margin-top:10px; padding:9px; }
+    #${ROOT_ID}-mention-picker strong { display:block; font-size:12px; margin-bottom:7px; }
+    #${ROOT_ID} .mention-candidate { background:#223149; border:1px solid #405475; border-radius:6px; color:#d8e5fb; display:block; margin-top:6px; overflow:hidden; padding:7px 8px; text-align:left; text-overflow:ellipsis; white-space:nowrap; width:100%; }
+    #${ROOT_ID} .mention-candidate:hover { background:#30466b; border-color:#7ba9ff; }
     #${ROOT_ID}-versions { border-top:1px solid var(--line); margin-top:12px; max-height:360px; overflow:auto; }
-    #${ROOT_ID} .version-row { align-items:center; border-bottom:1px solid var(--line); display:flex; gap:10px; min-height:55px; padding:9px 4px; }
-    #${ROOT_ID} .version-row[data-current="true"] { background:linear-gradient(90deg,rgba(79,140,255,.12),transparent 72%); box-shadow:inset 2px 0 0 var(--accent); padding-left:10px; }
+    #${ROOT_ID} .article-group { border-bottom:1px solid var(--line); }
+    #${ROOT_ID} .article-group-toggle { align-items:center; background:transparent; border:0; color:var(--text); display:flex; gap:8px; min-height:50px; padding:10px 4px; text-align:left; width:100%; }
+    #${ROOT_ID} .article-group-toggle:hover { background:rgba(79,140,255,.08); }
+    #${ROOT_ID} .article-group-chevron { color:#8fb9ff; font-size:19px; line-height:1; text-align:center; width:14px; }
+    #${ROOT_ID} .article-group-title { flex:1; font-size:13px; font-weight:700; line-height:1.35; }
+    #${ROOT_ID} .article-group-count { color:var(--muted); font-size:11px; white-space:nowrap; }
+    #${ROOT_ID} .article-group[data-collapsed="true"] .article-version-list { display:none; }
+    #${ROOT_ID} .article-version-list { border-top:1px solid rgba(43,58,83,.72); margin:0 0 0 10px; }
+    #${ROOT_ID} .version-row { align-items:center; border-bottom:1px solid rgba(43,58,83,.72); display:flex; gap:10px; min-height:45px; padding:8px 4px 8px 10px; }
+    #${ROOT_ID} .version-row:last-child { border-bottom:0; }
+    #${ROOT_ID} .version-row[data-reusable="true"] { background:linear-gradient(90deg,rgba(54,211,153,.11),transparent 72%); box-shadow:inset 2px 0 0 #36d399; padding-left:10px; }
     #${ROOT_ID} .version-detail { min-width:0; flex:1; }
-    #${ROOT_ID} .version-tag { color:#8fb9ff; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:11px; font-weight:750; letter-spacing:.04em; margin-right:7px; }
-    #${ROOT_ID} .version-title, #${ROOT_ID} .version-meta { display:block; }
-    #${ROOT_ID} .version-title { color:#edf3fd; display:inline; font-size:13px; font-weight:600; line-height:1.35; }
+    #${ROOT_ID} .version-note, #${ROOT_ID} .version-tag, #${ROOT_ID} .version-meta { display:block; }
+    #${ROOT_ID} .version-note { color:#edf3fd; display:inline-block; font-size:12px; font-weight:700; margin-right:8px; }
+    #${ROOT_ID} .version-tag { color:#8fb9ff; display:inline-block; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; font-weight:750; letter-spacing:.04em; }
     #${ROOT_ID} .version-meta { color:var(--muted); font-size:11px; margin-top:3px; }
-    #${ROOT_ID} .version-apply { background:transparent; border:0; color:#91baff; font-size:12px; font-weight:700; padding:6px 4px; width:auto; }
-    #${ROOT_ID} .version-apply:hover { color:#d4e4ff; text-decoration:underline; }
-    #${ROOT_ID} .version-row[data-current="true"] .version-apply { color:#a9d8ff; }
+    #${ROOT_ID} .version-apply { background:#2f6feb; border:1px solid #4f8cff; border-radius:7px; color:#fff; font-size:12px; font-weight:750; line-height:1; min-width:38px; padding:8px 10px; transition:background .15s ease, border-color .15s ease, transform .15s ease; }
+    #${ROOT_ID} .version-apply:hover { background:#4f8cff; border-color:#7ba9ff; transform:translateY(-1px); }
+    #${ROOT_ID} .version-apply:disabled { background:#28364d; border-color:#3b4c67; color:#91a0b8; cursor:not-allowed; transform:none; }
+    #${ROOT_ID} .version-row[data-reusable="true"] .version-apply { background:#21685a; border-color:#3f917f; }
+    #${ROOT_ID} .version-row[data-reusable="true"] .version-apply:hover { background:#2d7d6d; border-color:#66b8a5; }
     #${ROOT_ID} .empty { color:var(--muted); margin:5px 0; text-align:center; }
     #${ROOT_ID}-message { background:#1b2639; border:1px solid #2e405c; border-radius:8px; color:#bac8dd; margin:12px 0 0; padding:9px 10px; }
+    #${ROOT_ID}-message:empty { display:none; }
     #${ROOT_ID}-message[data-kind="success"] { background:#16362e; border-color:#245e4f; color:#9be7c4; }
     #${ROOT_ID}-message[data-kind="warning"] { background:#3a2d18; border-color:#6a5024; color:#f3d38b; }
     #${ROOT_ID}-message[data-kind="error"] { background:#41222a; border-color:#713543; color:#ffb4bd; }
     #${ROOT_ID}-message[data-kind="working"] { background:#1c3154; border-color:#315a93; color:#b7d1ff; }
+    #${ROOT_ID}-cancel { background:transparent; border:1px solid #86505a; border-radius:8px; color:#ffb4bd; font-weight:700; margin-top:10px; padding:8px 10px; width:100%; }
+    #${ROOT_ID}-cancel:hover { background:#41222a; }
+    #${ROOT_ID}-cancel:disabled { color:#95717a; cursor:wait; }
   `
   document.head.append(style)
 }
@@ -767,14 +1082,23 @@ function createPanel() {
     <div class="panel-body">
       <div id="${ROOT_ID}-connection" data-online="false">Bridge 离线</div>
       <button id="${ROOT_ID}-refresh" type="button">刷新版本</button>
+      <div id="${ROOT_ID}-mention-picker" hidden></div>
       <div id="${ROOT_ID}-versions"></div>
+      <button id="${ROOT_ID}-cancel" type="button" hidden>取消本次写入</button>
       <p id="${ROOT_ID}-message">点击“刷新版本”读取当前目标的本地文章。</p>
     </div>
   `
   const refresh = root.querySelector<HTMLButtonElement>(`#${ROOT_ID}-refresh`)
   const collapse = root.querySelector<HTMLButtonElement>(`#${ROOT_ID}-collapse`)
+  const cancel = root.querySelector<HTMLButtonElement>(`#${ROOT_ID}-cancel`)
   refresh?.addEventListener('click', () => void refreshVersions())
   collapse?.addEventListener('click', () => setPanelCollapsed(root, root.dataset.collapsed !== 'true'))
+  cancel?.addEventListener('click', () => {
+    if (!writeAbortController || writeAbortController.signal.aborted) return
+    writeAbortController.abort()
+    renderWriteControls()
+    renderMessage('正在取消；当前网络请求结束后将停止写入。', 'warning')
+  })
   document.body.append(root)
   const restored = panelState()
   if (restored) {
@@ -799,6 +1123,8 @@ const observer = new MutationObserver(() => {
   if (imageCacheEditor && !imageCacheEditor.isConnected) {
     imageCacheEditor = null
     imageFileKeys.clear()
+    reusableImagePackageIds.clear()
+    renderVersions()
   }
 })
 observer.observe(document.documentElement, { childList: true, subtree: true })

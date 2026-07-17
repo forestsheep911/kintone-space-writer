@@ -27,9 +27,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from kintone_space_comment import collect_targets, load_targets, string_value
-
-
 SERVICE_NAME = "kintone-space-writer-bridge"
 SCHEMA = "kintone-space-writer.bridge-package.v1"
 ARTICLE_SCHEMA = "kintone-rich-article.v1"
@@ -99,35 +96,6 @@ def package_path(workspace: Path, package_id: str) -> Path:
     return packages_dir(workspace) / f"{package_id}.json"
 
 
-def normalize_origin(value: str) -> str:
-    parsed = urllib.parse.urlsplit(value.strip())
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
-        raise BridgeError(f"Invalid browser origin: {value}")
-    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
-
-
-def target_matches(package: dict[str, Any], origin: str, space_id: str, thread_id: str) -> bool:
-    target = package.get("target")
-    if not isinstance(target, dict):
-        return False
-    origins = target.get("origins")
-    if not isinstance(origins, list):
-        return False
-    try:
-        normalized = normalize_origin(origin)
-    except BridgeError:
-        return False
-    try:
-        normalized_origins = {normalize_origin(str(item)) for item in origins}
-    except BridgeError:
-        return False
-    return (
-        normalized in normalized_origins
-        and str(target.get("spaceId", "")) == str(space_id)
-        and str(target.get("threadId", "")) == str(thread_id)
-    )
-
-
 def claim_expired(package: dict[str, Any]) -> bool:
     claim = package.get("claim")
     if not isinstance(claim, dict):
@@ -145,7 +113,7 @@ def refresh_expired_claim(path: Path, package: dict[str, Any]) -> dict[str, Any]
     return package
 
 
-def ready_packages(workspace: Path, origin: str, space_id: str, thread_id: str) -> list[dict[str, Any]]:
+def ready_packages(workspace: Path) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for path in sorted(packages_dir(workspace).glob("*.json")):
         try:
@@ -154,19 +122,18 @@ def ready_packages(workspace: Path, origin: str, space_id: str, thread_id: str) 
             continue
         if package.get("schema") != SCHEMA or package.get("status") != "ready":
             continue
-        if target_matches(package, origin, space_id, thread_id):
-            results.append(package)
+        results.append(package)
     return results
 
 
-def target_packages(workspace: Path, origin: str, space_id: str, thread_id: str) -> list[dict[str, Any]]:
+def retained_packages(workspace: Path) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for path in packages_dir(workspace).glob("*.json"):
         try:
             package = refresh_expired_claim(path, read_json(path))
         except BridgeError:
             continue
-        if package.get("schema") == SCHEMA and target_matches(package, origin, space_id, thread_id):
+        if package.get("schema") == SCHEMA:
             results.append(package)
     return sorted(results, key=lambda package: str(package.get("createdAt", "")), reverse=True)
 
@@ -177,6 +144,7 @@ def package_summary(package: dict[str, Any]) -> dict[str, Any]:
         "id": package.get("id"),
         "articleId": article.get("id") if isinstance(article, dict) else None,
         "title": article.get("title") if isinstance(article, dict) else None,
+        "revisionNote": article.get("revisionNote") if isinstance(article, dict) else None,
         "version": package.get("version"),
         "hash": package.get("hash"),
         "status": package.get("status"),
@@ -214,36 +182,9 @@ def public_package(package: dict[str, Any], port: int, workspace: Path) -> dict[
         "status": package.get("status"),
         "createdAt": package.get("createdAt"),
         "updatedAt": package.get("updatedAt"),
-        "target": package.get("target"),
         "article": package.get("article"),
         "assetDigests": package_asset_digests(package, workspace),
         "assets": asset_urls,
-    }
-
-
-def load_target(targets_path: Path, alias: str) -> dict[str, Any]:
-    data = load_targets(targets_path)
-    targets = collect_targets(data)
-    target = targets.get(alias)
-    if not isinstance(target, dict):
-        available = ", ".join(sorted(targets))
-        raise BridgeError(f"Unknown target alias '{alias}'. Available targets: {available}")
-    origins_value = target.get("origins")
-    origins: list[str]
-    if isinstance(origins_value, list) and origins_value:
-        origins = [normalize_origin(str(value)) for value in origins_value]
-    else:
-        origins = [normalize_origin(string_value(target, "baseUrl"))]
-    space_id = string_value(target, "spaceId")
-    thread_id = string_value(target, "threadId")
-    if not space_id or not thread_id:
-        raise BridgeError(f"Target '{alias}' must define spaceId and threadId")
-    return {
-        "alias": alias,
-        "label": string_value(target, "label") or None,
-        "origins": sorted(set(origins)),
-        "spaceId": space_id,
-        "threadId": thread_id,
     }
 
 
@@ -256,8 +197,37 @@ def validate_article(article: dict[str, Any]) -> None:
     blocks = article.get("blocks")
     if not isinstance(blocks, list) or not blocks:
         raise BridgeError("Article blocks must be a non-empty array")
-    allowed = {"heading", "paragraph", "quote", "bulletList", "numberList", "divider", "image"}
+    allowed = {"heading", "paragraph", "quote", "bulletList", "numberList", "divider", "image", "imageRow"}
     color_pattern = re.compile(r"^#[0-9A-Fa-f]{6}$")
+    revision_note = article.get("revisionNote")
+    if revision_note is not None and (not isinstance(revision_note, str) or not revision_note.strip() or len(revision_note) > 40):
+        raise BridgeError("Article revisionNote must be a non-empty string of at most 40 characters")
+
+    def validate_image(block: dict[str, Any], label: str) -> None:
+        if not isinstance(block.get("fileName"), str) or not block["fileName"].strip():
+            raise BridgeError(f"{label} must define fileName")
+        width = block.get("width", 500)
+        if isinstance(width, bool) or not isinstance(width, int) or not 100 <= width <= 750:
+            raise BridgeError(f"{label} width must be from 100 to 750")
+
+    def validate_text_style(value: dict[str, Any], label: str) -> None:
+        if "fontSize" in value and (
+            isinstance(value["fontSize"], bool)
+            or not isinstance(value["fontSize"], int)
+            or not 1 <= value["fontSize"] <= 7
+        ):
+            raise BridgeError(f"{label} fontSize must be from 1 to 7")
+        for key in ("color", "backgroundColor"):
+            if key in value and (
+                not isinstance(value[key], str) or not color_pattern.fullmatch(value[key])
+            ):
+                raise BridgeError(f"{label} {key} must be a six-digit hex color")
+        link = value.get("link")
+        if link is not None:
+            parsed = urllib.parse.urlsplit(str(link))
+            if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                raise BridgeError(f"{label} link must be an HTTP(S) URL")
+
     for index, block in enumerate(blocks, start=1):
         if not isinstance(block, dict) or block.get("type") not in allowed:
             raise BridgeError(f"Article block {index} has an unsupported type")
@@ -272,28 +242,39 @@ def validate_article(article: dict[str, Any]) -> None:
             raise BridgeError(f"Article heading block {index} level must be 1, 2, or 3")
         if block.get("align") not in (None, "left", "center", "right"):
             raise BridgeError(f"Article block {index} has an invalid alignment")
-        if "fontSize" in block and (
-            isinstance(block["fontSize"], bool)
-            or not isinstance(block["fontSize"], int)
-            or not 1 <= block["fontSize"] <= 7
-        ):
-            raise BridgeError(f"Article block {index} fontSize must be from 1 to 7")
-        for key in ("color", "backgroundColor"):
-            if key in block and (
-                not isinstance(block[key], str) or not color_pattern.fullmatch(block[key])
-            ):
-                raise BridgeError(f"Article block {index} {key} must be a six-digit hex color")
-        link = block.get("link")
-        if link is not None:
-            parsed = urllib.parse.urlsplit(str(link))
-            if parsed.scheme not in ("http", "https") or not parsed.netloc:
-                raise BridgeError(f"Article block {index} link must be an HTTP(S) URL")
+        validate_text_style(block, f"Article block {index}")
+        if "runs" in block:
+            runs = block["runs"]
+            if block_type not in ("heading", "paragraph", "quote") or not isinstance(runs, list) or not runs:
+                raise BridgeError(f"Article block {index} runs are only supported on non-empty text blocks")
+            for run_index, run in enumerate(runs, start=1):
+                if not isinstance(run, dict):
+                    raise BridgeError(f"Article block {index} run {run_index} must be an object")
+                mention = run.get("mention")
+                if mention is None and not isinstance(run.get("text"), str):
+                    raise BridgeError(f"Article block {index} run {run_index} must define text or mention")
+                if mention is not None:
+                    if (
+                        not isinstance(mention, dict)
+                        or not isinstance(mention.get("query"), str)
+                        or not mention["query"].strip()
+                        or len(mention["query"]) > 100
+                        or mention.get("entityType") not in (None, "USER", "GROUP", "ORGANIZATION")
+                    ):
+                        raise BridgeError(
+                            f"Article block {index} run {run_index} mention must define query and an optional valid entityType"
+                        )
+                validate_text_style(run, f"Article block {index} run {run_index}")
         if block_type == "image":
-            if not isinstance(block.get("fileName"), str) or not block["fileName"].strip():
-                raise BridgeError(f"Image block {index} must define fileName")
-            width = block.get("width", 500)
-            if isinstance(width, bool) or not isinstance(width, int) or not 100 <= width <= 750:
-                raise BridgeError(f"Image block {index} width must be from 100 to 750")
+            validate_image(block, f"Image block {index}")
+        if block_type == "imageRow":
+            images = block.get("images")
+            if not isinstance(images, list) or len(images) < 2 or not all(isinstance(image, dict) for image in images):
+                raise BridgeError(f"Image row block {index} must define at least two images")
+            if "gap" in block:
+                raise BridgeError(f"Image row block {index} does not support gap; use per-image widths")
+            for image_index, image in enumerate(images, start=1):
+                validate_image(image, f"Image row block {index}, image {image_index}")
 
 
 def article_asset_paths(
@@ -304,18 +285,18 @@ def article_asset_paths(
     blocks = article["blocks"]
     result: dict[str, str] = {}
     for index, block in enumerate(blocks, start=1):
-        if block.get("type") != "image":
-            continue
-        file_name = str(block["fileName"])
-        candidate = (assets_root / file_name).resolve()
-        try:
-            candidate.relative_to(assets_root.resolve())
-            relative = candidate.relative_to(workspace)
-        except ValueError as exc:
-            raise BridgeError(f"Image must stay inside the selected assets root: {candidate}") from exc
-        if not candidate.is_file():
-            raise BridgeError(f"Article image was not found: {candidate}")
-        result[file_name] = relative.as_posix()
+        images = [block] if block.get("type") == "image" else block.get("images", []) if block.get("type") == "imageRow" else []
+        for image in images:
+            file_name = str(image["fileName"])
+            candidate = (assets_root / file_name).resolve()
+            try:
+                candidate.relative_to(assets_root.resolve())
+                relative = candidate.relative_to(workspace)
+            except ValueError as exc:
+                raise BridgeError(f"Image must stay inside the selected assets root: {candidate}") from exc
+            if not candidate.is_file():
+                raise BridgeError(f"Article image was not found: {candidate}")
+            result[file_name] = relative.as_posix()
     return result
 
 
@@ -344,9 +325,13 @@ def create_ready_package(
     workspace: Path,
     article_path: Path,
     assets_root: Path,
-    targets_path: Path,
-    target_alias: str,
 ) -> dict[str, Any]:
+    # Keep all paths in their canonical form.  On macOS, tempfile commonly
+    # returns /var/... while Path.resolve() produces /private/var/...; mixing
+    # the two makes otherwise valid assets fail the containment check below.
+    workspace = workspace_path(workspace)
+    article_path = article_path.expanduser().resolve()
+    assets_root = assets_root.expanduser().resolve()
     article = read_json(article_path)
     if article.get("schema") != ARTICLE_SCHEMA:
         raise BridgeError(f"Article schema must be {ARTICLE_SCHEMA}")
@@ -357,7 +342,6 @@ def create_ready_package(
     version = str(article.get("version") or datetime.now().strftime("%Y%m%d-%H%M%S"))
     package_id = safe_package_id(f"{article_id}-{version}-{digest[:10]}")
     now = utc_now()
-    destination = load_target(targets_path, target_alias)
     existing_path = package_path(workspace, package_id)
     if existing_path.exists():
         existing = read_json(existing_path)
@@ -372,7 +356,6 @@ def create_ready_package(
         "status": "ready",
         "createdAt": now,
         "updatedAt": now,
-        "target": destination,
         "article": article,
         "_articlePath": article_path.relative_to(workspace).as_posix(),
         "_assetPaths": assets,
@@ -484,7 +467,7 @@ class BridgeServer(ThreadingHTTPServer):
 
     def __init__(self, address: tuple[str, int], workspace: Path, instance_id: str, token: str):
         super().__init__(address, BridgeHandler)
-        self.workspace = workspace
+        self.workspace = workspace_path(workspace)
         self.instance_id = instance_id
         self.token = token
         self.last_activity = time.monotonic()
@@ -567,11 +550,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         if not self.require_authorized():
             return
         if parsed.path == "/v1/ready":
-            query = urllib.parse.parse_qs(parsed.query)
-            origin = query.get("origin", [""])[0]
-            space_id = query.get("spaceId", [""])[0]
-            thread_id = query.get("threadId", [""])[0]
-            matches = ready_packages(self.server.workspace, origin, space_id, thread_id)
+            matches = ready_packages(self.server.workspace)
             if not matches:
                 self.send_response(HTTPStatus.NO_CONTENT)
                 self.send_header("Content-Length", "0")
@@ -585,12 +564,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 return
             self.send_json(HTTPStatus.OK, public_package(matches[0], self.server.server_port, self.server.workspace))
             return
-        query = urllib.parse.parse_qs(parsed.query)
-        origin = query.get("origin", [""])[0]
-        space_id = query.get("spaceId", [""])[0]
-        thread_id = query.get("threadId", [""])[0]
         if parsed.path == "/v1/packages":
-            packages = target_packages(self.server.workspace, origin, space_id, thread_id)
+            packages = retained_packages(self.server.workspace)
             self.send_json(HTTPStatus.OK, {"packages": [package_summary(package) for package in packages]})
             return
         package_match = re.fullmatch(r"/v1/packages/([^/]+)", parsed.path)
@@ -601,8 +576,6 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     package_path(self.server.workspace, package_id),
                     read_json(package_path(self.server.workspace, package_id)),
                 )
-                if not target_matches(package, origin, space_id, thread_id):
-                    raise BridgeError("Current page does not match the package target")
                 self.send_json(HTTPStatus.OK, public_package(package, self.server.server_port, self.server.workspace))
             except BridgeError:
                 self.send_json(HTTPStatus.NOT_FOUND, {"error": "package-not-found"})
@@ -662,13 +635,6 @@ class BridgeHandler(BaseHTTPRequestHandler):
             if body.get("hash") != package.get("hash"):
                 raise BridgeError("Package hash mismatch")
             if action == "claim":
-                if not target_matches(
-                    package,
-                    str(body.get("origin", "")),
-                    str(body.get("spaceId", "")),
-                    str(body.get("threadId", "")),
-                ):
-                    raise BridgeError("Current page does not match the package target")
                 client_id = str(body.get("clientId", ""))
                 if not client_id:
                     raise BridgeError("clientId is required")
@@ -774,8 +740,7 @@ def command_mark_ready(args: argparse.Namespace) -> int:
     workspace = workspace_path(args.workspace)
     article_path = (workspace / args.article).resolve() if not args.article.is_absolute() else args.article.resolve()
     assets_root = (workspace / args.assets_root).resolve() if not args.assets_root.is_absolute() else args.assets_root.resolve()
-    targets_path = (workspace / args.targets).resolve() if not args.targets.is_absolute() else args.targets.resolve()
-    for candidate, label in ((article_path, "article"), (assets_root, "assets root"), (targets_path, "targets")):
+    for candidate, label in ((article_path, "article"), (assets_root, "assets root")):
         try:
             candidate.relative_to(workspace)
         except ValueError as exc:
@@ -784,14 +749,13 @@ def command_mark_ready(args: argparse.Namespace) -> int:
         raise BridgeError(f"Article JSON was not found: {article_path}")
     if not assets_root.is_dir():
         raise BridgeError(f"Assets directory was not found: {assets_root}")
-    package = create_ready_package(workspace, article_path, assets_root, targets_path, args.target)
+    package = create_ready_package(workspace, article_path, assets_root)
     state = ensure_bridge(workspace, args.port_start, args.port_end, args.idle_timeout)
     print(
         json.dumps(
             {
                 "id": package["id"],
                 "status": package["status"],
-                "target": package["target"],
                 "hash": package["hash"],
                 "bridgePort": state.get("port"),
             },
@@ -814,7 +778,6 @@ def command_list(args: argparse.Namespace) -> int:
             {
                 "id": package.get("id"),
                 "status": package.get("status"),
-                "target": package.get("target"),
                 "updatedAt": package.get("updatedAt"),
             }
         )
@@ -866,8 +829,6 @@ def build_parser() -> argparse.ArgumentParser:
     add_bridge_options(ready)
     ready.add_argument("--article", type=Path, required=True)
     ready.add_argument("--assets-root", type=Path, default=Path("assets"))
-    ready.add_argument("--targets", type=Path, default=Path("kintone-targets.yaml"))
-    ready.add_argument("--target", required=True)
     ready.set_defaults(func=command_mark_ready)
 
     list_command = subparsers.add_parser("list", help="List local bridge package states")

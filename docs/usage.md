@@ -11,8 +11,6 @@ Recommended shape:
 ```text
 my-article-workspace/
   kintone-space-writer.md
-  .env
-  kintone-targets.yaml
   drafts/
     article-v001.rich.json
   assets/
@@ -22,9 +20,10 @@ my-article-workspace/
 
 The plugin source can live elsewhere. The workspace keeps article-specific drafts, settings, and publish records.
 
-## 2. Initialize Local Settings
+## 2. Optional REST Fallback Settings
 
-Run these commands from the article workspace:
+Only the REST fallback needs `.env` and `kintone-targets.yaml`. Run these
+commands from the article workspace when you plan to use that route:
 
 ```powershell
 python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-env
@@ -83,10 +82,9 @@ environments:
             imageWidth: 600
 ```
 
-For rich injection, every entry in `origins` is an exact browser origin allowed
-to receive the target. If the target is missing, give the plugin the full Space
-thread URL; it must confirm and save the origin, Space ID, and Thread ID before
-marking a draft Ready.
+These target fields are used only by the REST fallback. The rich browser route
+does not need an origin, Space ID, Thread ID, or target alias: the user selects
+the intended thread directly in kintone.
 
 ## 5. Install The Local Companion Userscript
 
@@ -115,21 +113,20 @@ See [rich-editor-bridge.md](rich-editor-bridge.md) for the schema and example.
 From the article workspace:
 
 ```powershell
-python <plugin>/scripts/kintone_article_bridge.py mark-ready --workspace . --article drafts/article-v001.rich.json --assets-root assets --targets kintone-targets.yaml --target test-news
+python <plugin>/scripts/kintone_article_bridge.py mark-ready --workspace . --article drafts/article-v001.rich.json --assets-root assets
 ```
 
 This starts or reuses the Bridge. It does not create a Windows startup service.
 
 ## 8. Select A Version And Review
 
-Open or refresh the exact target Space thread.
+Open or refresh the intended Space thread.
 
-- Click `刷新版本` in the companion panel to read retained local article versions
-  for this exact Space thread. This is the only time the companion discovers the
-  local Bridge.
+- Click `刷新版本` in the companion panel to read retained local article versions.
+  This is the only time the companion discovers the local Bridge.
 - If the page still shows `发表评论…`, click that native entry once so kintone
   creates the rich editor.
-- Click the desired `应用 v001` (or another version) button. Clicking a version
+- Click the compact `写` button for the desired version. Clicking a version
   again, or clicking a different version, replaces the editor content.
 - Unchanged images at the same width reuse their temporary upload only while the
   same editor stays open; canceling/closing it or reloading uploads them again.

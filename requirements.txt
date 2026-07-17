@@ -1,0 +1,2 @@
+# Required to read kintone-targets.yaml for the Bridge and REST fallback.
+PyYAML>=6.0,<7

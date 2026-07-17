@@ -17,9 +17,10 @@ The Bridge binds to `127.0.0.1` and selects the first free port from 8787–8807
 Plugin calls start it idempotently; it is not registered as a Windows service
 and exits after an idle timeout. Its workspace-local queue is ignored by Git.
 
-Every package is bound to exact browser origins, Space ID, and Thread ID. The
-userscript must claim it before uploading images, refuses non-empty editors,
-records injected/failed results, and never activates Publish. Rich images use
+Every package is local to its article workspace. The userscript must claim it
+before uploading images, writes only after the user has opened a native comment
+editor and selected a version, records injected/failed results, and never
+activates Publish. Rich images use
 kintone's internal Web upload route and native temporary image DOM, so the REST
 fallback remains important if kintone changes that behavior.
 
@@ -112,9 +113,9 @@ REST fallback limits:
 The standard Ready bridge provides text-image interleaving through the native
 Web editor.
 
-## Environment
+## REST Fallback Environment
 
-kintone target IDs belong in the article workspace `kintone-targets.yaml`, not inside the plugin repository or shared plugin knowledge. Secrets belong in `.env`.
+kintone target IDs belong in the article workspace `kintone-targets.yaml`, not inside the plugin repository or shared plugin knowledge. Secrets belong in `.env`. These files apply to the REST fallback; the rich browser route uses the thread the user opens.
 
 Use nested target configuration for multiple domains, Spaces, and threads. The file follows the same mental model as kintone: environment, then Space, then Thread. Each thread defines one unique publish alias:
 

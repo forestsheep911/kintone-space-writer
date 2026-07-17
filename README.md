@@ -13,7 +13,7 @@ The plugin is designed for article workspaces: each article or topic can keep it
 - Start an on-demand local Bridge and hand Ready packages to a locally installed companion userscript.
 - Preserve plain-text REST posting with trailing attachments as a fallback.
 - Keep local publish records for comment IDs, target aliases, draft IDs, hashes, and attachments.
-- Support multiple kintone environments, Spaces, and threads through readable YAML target aliases.
+- Support YAML target aliases for the REST fallback.
 
 ## Current Scope
 
@@ -30,7 +30,7 @@ It does not:
 The local companion source lives in
 [`userscript/kintone-space-writer`](userscript/kintone-space-writer). See
 [`docs/rich-editor-bridge.md`](docs/rich-editor-bridge.md) for the Ready protocol,
-article schema, target rules, and installation path.
+article schema, destination confirmation, and installation path.
 
 ## Repository Layout
 
@@ -83,7 +83,7 @@ writes local publish records.
 
 For a step-by-step operational guide, see [docs/usage.md](docs/usage.md).
 
-In a real article workspace, create local configuration files before publishing:
+If you need the REST fallback, create its local configuration files:
 
 ```powershell
 python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-env
@@ -97,8 +97,8 @@ This creates:
 kintone-targets.yaml
 ```
 
-Use `.env` only for REST fallback secrets and optional default target selection.
-Use `kintone-targets.yaml` for browser origins, Spaces, threads, and aliases.
+Use `.env` and `kintone-targets.yaml` only for the REST fallback. The rich
+browser route uses the thread the user opens and needs neither file.
 
 ## Environment File
 
@@ -174,10 +174,9 @@ Recommended rich-article workflow:
 3. Draft with the `kintone-space-writer` skill.
 4. Review the draft with `anti-ai-tone`.
 5. Save an ordered `kintone-rich-article.v1` JSON plus local images.
-6. Confirm the exact target origin, Space ID, and Thread ID.
-7. Mark the article Ready; this starts or reuses the local Bridge.
-8. Let the local companion userscript inject automatically, or click its manual button.
-9. Inspect the native editor and click Publish manually if correct.
+6. Mark the article Ready; this starts or reuses the local Bridge.
+7. Open the intended thread, click `发表评论…`, then choose a version in the companion panel.
+8. Inspect the native editor and click Publish manually if correct.
 
 ## REST Fallback
 
@@ -285,6 +284,13 @@ Deckit may be used as a reference for plugin repository layout and generated-ass
 
 ## Development
 
+Create the local Python environment once for the Bridge and YAML target tools:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements.txt
+```
+
 Build the locally installable companion userscript and validate the plugin:
 
 ```powershell
@@ -297,7 +303,7 @@ python <CODEX_HOME>/skills/.system/plugin-creator/scripts/validate_plugin.py ./p
 Check Python syntax:
 
 ```powershell
-python -m py_compile plugins/kintone-space-writer/scripts/kintone_space_comment.py plugins/kintone-space-writer/scripts/kintone_article_bridge.py
+.\.venv\Scripts\python -m py_compile plugins/kintone-space-writer/scripts/kintone_space_comment.py plugins/kintone-space-writer/scripts/kintone_article_bridge.py
 ```
 
 For selector debugging, use `pnpm dev` in `userscript/kintone-space-writer`.

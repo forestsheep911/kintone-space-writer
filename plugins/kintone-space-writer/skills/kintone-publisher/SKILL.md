@@ -1,6 +1,6 @@
 ---
 name: kintone-publisher
-description: Prepare, stage, or post kintone Space thread comments from workspace-local settings. Use when Codex needs to hand a rich article with inline images to the local Ready bridge, validate a target, or use the preserved REST fallback.
+description: Prepare, stage, or post kintone Space thread comments from workspace-local settings. Use when Codex needs to hand a rich article with inline images to the local Ready bridge or use the preserved REST fallback.
 ---
 
 # Kintone Publisher
@@ -24,17 +24,12 @@ article workspace.
 
 Before marking a draft Ready:
 
-1. Confirm the destination alias in workspace `kintone-targets.yaml`.
-2. If it is absent, ask the user for the full kintone Space thread URL. Parse and
-   confirm its exact browser origin, Space ID, and Thread ID. Ask for any other
-   origin the same target is actually opened through, especially `.s.cybozu.cn`
-   or `.s.kintone.com`, then save the confirmed values. Never guess a target.
-3. Build an ordered article JSON. Each image block must name a file below the
+1. Build an ordered article JSON. Each image block must name a file below the
    selected assets root.
-4. Start or reuse the Bridge and mark the package Ready in one operation:
+2. Start or reuse the Bridge and mark the package Ready in one operation:
 
 ```powershell
-python <plugin>/scripts/kintone_article_bridge.py mark-ready --workspace . --article drafts/article-v001.rich.json --assets-root assets --targets kintone-targets.yaml --target test-news
+python <plugin>/scripts/kintone_article_bridge.py mark-ready --workspace . --article drafts/article-v001.rich.json --assets-root assets
 ```
 
 `mark-ready` is idempotent. A new version of the same article is retained beside
@@ -45,20 +40,24 @@ after an idle period. The companion discovers this bounded range through
 Do not create a Windows startup task or long-running service.
 
 For an unpublished rich article, keep `article.id` stable and call `mark-ready`
-after every local revision. The browser retains every version for the target;
+after every local revision. The browser retains every local version;
 the user selects which version replaces the editor. Do not manually edit the
 mirrored kintone body.
 
 After Ready:
 
-- ask the user to click `刷新版本` on the exact target page to list retained
-  local versions; no background polling or injection occurs;
+- ask the user to open the intended Space thread and click `刷新版本` to list
+  retained local versions; no background polling or injection occurs;
 - if the page still shows the collapsed `发表评论…` entry, ask the user to
   click it once. kintone requires a real user gesture to create the rich editor;
-- the user clicks the desired `应用 v001` version button, which may replace a
+- the user clicks the desired version's `写` button, which may replace a
   previously applied version in that live editor;
 - the user always reviews the populated editor and clicks kintone Publish;
 - never click Publish for the user.
+
+The current thread is the rich-route destination, confirmed by the user's
+native `发表评论…` click and explicit version selection. Do not require a target
+alias, origin, Space ID, or Thread ID for this route.
 
 Useful recovery commands:
 
@@ -68,12 +67,31 @@ python <plugin>/scripts/kintone_article_bridge.py retry --workspace . --package-
 ```
 
 The article schema supports ordered `heading`, `paragraph`, `quote`,
-`bulletList`, `numberList`, `divider`, and `image` blocks. Text blocks may use
+`bulletList`, `numberList`, `divider`, `image`, and `imageRow` blocks. Text blocks may use
 `bold`, `italic`, `underline`, `link`, hex `color`, hex `backgroundColor`,
 `fontSize` 1–7, and `align`. Image blocks use `fileName`, optional `alt`,
-`caption`, and `width` 100–750.
+`caption`, and `width` 100–750. An `imageRow` contains at least two images;
+each image controls its own width. Text blocks default to left alignment. For
+a few emphasized terms inside an otherwise normal paragraph, use ordered
+`runs` (each with `text` and optional inline formatting) rather than coloring
+or highlighting the whole block.
 
-## Environment
+For `imageRow`, target kintone's native persisted editor shape: consecutive
+`img.cybozu-tmp-file` elements as direct children of one block `div`, followed
+by `<br>`. Never wrap those images in `span`, nested `div`, `figure`, a table,
+or CSS grid/flex layout containers. If kintone renders a filename/link instead
+of an inline `img.cybozu-tmp-file`, it classified the upload as an attachment;
+fix the image upload path rather than the row layout. Always verify after a
+programmatic write that the expected image nodes remain: matching the manually
+observed persisted DOM alone does not guarantee that kintone accepts the
+insertion mechanism.
+
+Do not infer native “original size” from a large `width`. Its confirmed shape
+adds `cybozu-img-file-original`, uses the source-pixel width, and downloads with
+`r=true` without `w`; model it as an explicit future option. Avoid original size
+in image rows by default because it can force wrapping.
+
+## REST Fallback Environment
 
 Load kintone publishing targets from the user's article/workspace `kintone-targets.yaml`.
 Load secrets and optional default target selection from the workspace `.env`.
@@ -93,7 +111,7 @@ YAML environment fields:
 
 - `label`
 - `baseUrl`
-- `origins` (exact browser origins allowed to receive Ready packages)
+- `origins` (browser origins recorded for REST target configuration)
 - `username`
 - `passwordEnv`
 

@@ -23,27 +23,7 @@ class BridgeTest(unittest.TestCase):
         self.workspace = Path(self.temporary.name)
         (self.workspace / "assets").mkdir()
         (self.workspace / "assets" / "chart.png").write_bytes(b"\x89PNG\r\n\x1a\nfixture")
-        (self.workspace / "kintone-targets.yaml").write_text(
-            """\
-defaultTarget: news
-environments:
-  customer:
-    baseUrl: https://customer.cybozu.cn
-    origins:
-      - https://customer.cybozu.cn
-      - https://customer.s.cybozu.cn
-    username: writer@example.com
-    passwordEnv: KINTONE_PASSWORD
-    spaces:
-      main:
-        spaceId: '10'
-        threads:
-          news:
-            alias: news
-            threadId: '12'
-""",
-            encoding="utf-8",
-        )
+        (self.workspace / "assets" / "chart-detail.png").write_bytes(b"\x89PNG\r\n\x1a\ndetail")
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -59,7 +39,13 @@ environments:
                     "title": "周报",
                     "blocks": [
                         {"type": "paragraph", "text": text},
-                        {"type": "image", "fileName": "chart.png", "caption": "图 1"},
+                        {
+                            "type": "imageRow",
+                            "images": [
+                                {"type": "image", "fileName": "chart.png", "caption": "图 1", "width": 320},
+                                {"type": "image", "fileName": "chart-detail.png", "caption": "图 2", "width": 240},
+                            ],
+                        },
                     ],
                 },
                 ensure_ascii=False,
@@ -73,15 +59,12 @@ environments:
             self.workspace,
             self.write_article(version, text),
             self.workspace / "assets",
-            self.workspace / "kintone-targets.yaml",
-            "news",
         )
 
-    def test_target_requires_exact_origin_space_and_thread(self) -> None:
+    def test_ready_package_requires_no_target_configuration(self) -> None:
         package = self.create_package("v1")
-        self.assertTrue(bridge.target_matches(package, "https://customer.s.cybozu.cn", "10", "12"))
-        self.assertFalse(bridge.target_matches(package, "https://customer.cybozu.cn", "10", "99"))
-        self.assertFalse(bridge.target_matches(package, "https://other.cybozu.cn", "10", "12"))
+        self.assertNotIn("target", package)
+        self.assertEqual([package], bridge.ready_packages(self.workspace))
 
     def test_mark_ready_keeps_each_version_available_for_manual_selection(self) -> None:
         first = self.create_package("v1")
@@ -93,7 +76,7 @@ environments:
         stored_first = bridge.read_json(bridge.package_path(self.workspace, first["id"]))
         self.assertEqual(stored_first["status"], "ready")
         self.assertEqual(second["status"], "ready")
-        ready = bridge.ready_packages(self.workspace, "https://customer.cybozu.cn", "10", "12")
+        ready = bridge.ready_packages(self.workspace)
         self.assertEqual({package["id"] for package in ready}, {first["id"], second["id"]})
 
     def test_new_revision_remains_ready_after_previous_revision_is_injected(self) -> None:
@@ -102,7 +85,7 @@ environments:
         bridge.atomic_write_json(bridge.package_path(self.workspace, first["id"]), first)
 
         second = self.create_package("v2", "新版正文")
-        ready = bridge.ready_packages(self.workspace, "https://customer.cybozu.cn", "10", "12")
+        ready = bridge.ready_packages(self.workspace)
 
         self.assertEqual([package["id"] for package in ready], [second["id"]])
 
@@ -114,15 +97,7 @@ environments:
         base = f"http://127.0.0.1:{server.server_port}"
 
         try:
-            query = urllib.parse.urlencode(
-                {
-                    "origin": "https://customer.s.cybozu.cn",
-                    "spaceId": "10",
-                    "threadId": "12",
-                    "bridgeToken": "test-token",
-                }
-            )
-            request = urllib.request.Request(f"{base}/v1/ready?{query}")
+            request = urllib.request.Request(f"{base}/v1/ready?bridgeToken=test-token")
             with urllib.request.urlopen(request) as response:
                 public = json.loads(response.read().decode("utf-8"))
             self.assertEqual(public["id"], package["id"])
@@ -137,9 +112,6 @@ environments:
                 {
                     "hash": package["hash"],
                     "clientId": "browser-test",
-                    "origin": "https://customer.s.cybozu.cn",
-                    "spaceId": "10",
-                    "threadId": "12",
                 }
             ).encode("utf-8")
             claim_request = urllib.request.Request(
@@ -175,7 +147,7 @@ environments:
             server.server_close()
             thread.join(timeout=2)
 
-    def test_http_lists_retained_versions_and_returns_target_bound_package(self) -> None:
+    def test_http_lists_retained_versions_and_returns_package_without_target(self) -> None:
         first = self.create_package("v1")
         first.pop("_assetDigests")
         bridge.atomic_write_json(bridge.package_path(self.workspace, first["id"]), first)
@@ -184,25 +156,17 @@ environments:
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         base = f"http://127.0.0.1:{server.server_port}"
-        query = urllib.parse.urlencode(
-            {
-                "origin": "https://customer.s.cybozu.cn",
-                "spaceId": "10",
-                "threadId": "12",
-                "bridgeToken": "test-token",
-            }
-        )
-
         try:
-            with urllib.request.urlopen(f"{base}/v1/packages?{query}") as response:
+            with urllib.request.urlopen(f"{base}/v1/packages?bridgeToken=test-token") as response:
                 listing = json.loads(response.read().decode("utf-8"))
             self.assertEqual({item["id"] for item in listing["packages"]}, {first["id"], second["id"]})
             self.assertEqual(listing["packages"][0]["articleId"], "weekly-news")
 
-            with urllib.request.urlopen(f"{base}/v1/packages/{first['id']}?{query}") as response:
+            with urllib.request.urlopen(f"{base}/v1/packages/{first['id']}?bridgeToken=test-token") as response:
                 package = json.loads(response.read().decode("utf-8"))
             self.assertEqual(package["id"], first["id"])
             self.assertEqual(len(package["assetDigests"]["chart.png"]), 64)
+            self.assertEqual(len(package["assetDigests"]["chart-detail.png"]), 64)
         finally:
             server.shutdown()
             server.server_close()
