@@ -153,10 +153,12 @@ const PORT_END = 8807
 const CLIENT_KEY = 'ksw-standard-client-id'
 const PORTS_KEY = 'ksw-standard-bridge-ports'
 const PANEL_STATE_KEY = 'ksw-standard-panel-state'
+const ARCHIVE_KEY_PREFIX = 'ksw-archived-article:'
 const AUTO_REFRESH_INTERVAL_MS = 5_000
 const AUTO_DISCOVERY_INTERVAL_MS = 30_000
 const DEV_MODE = import.meta.env.DEV
-const DEV_LABEL = 'DEV 0.2.8'
+const DEV_LABEL = 'DEV 0.3.0'
+let showArchived = false
 
 let editor: HTMLElement | null = null
 let busy = false
@@ -168,7 +170,7 @@ let lastDiscoveryAt = 0
 let imageFileKeys = new Map<string, string>()
 let imageCacheEditor: HTMLElement | null = null
 let reusableImagePackageIds = new Set<string>()
-let collapsedArticleIds = new Set<string>()
+let expandedArticleIds = new Set<string>()
 let writeAbortController: AbortController | null = null
 let mentionSelection: { resolve: (candidate: MentionCandidate) => void; reject: (error: Error) => void } | null = null
 
@@ -879,16 +881,29 @@ function renderVersions() {
   const element = document.querySelector<HTMLElement>(`#${ROOT_ID}-versions`)
   if (!element) return
   const previousScrollTop = element.scrollTop
-  if (!versionMatches.length) {
-    element.innerHTML = '<p class="empty">没有可用的本地版本。</p>'
-    return
-  }
   element.replaceChildren()
+  const allGroups = articleVersionGroups()
+  const archived = (id: string) => GM_getValue<boolean>(ARCHIVE_KEY_PREFIX + id, false) === true
+  const archivedCount = allGroups.filter(group => archived(group.articleId)).length
+  for (const [view, count] of [['active', allGroups.length - archivedCount], ['archive', archivedCount]] as const) {
+    const tab = document.querySelector<HTMLButtonElement>(`#${ROOT_ID}-${view}`)
+    if (tab) {
+      tab.textContent = `${view === 'active' ? '正在编辑' : '已归档'} · ${count}`
+      tab.setAttribute('aria-pressed', String((view === 'archive') === showArchived))
+    }
+  }
+  const groups = allGroups.filter(group => archived(group.articleId) === showArchived)
+  if (!groups.length) {
+    const empty = document.createElement('p')
+    empty.className = 'empty'
+    empty.textContent = showArchived ? '暂无归档文章' : allGroups.length ? '文章都已归档，可在“已归档”中恢复。' : '准备好的文章将在这里显示。'
+    element.append(empty)
+  }
   const activeEditor = findEditorCandidates()[0]?.element ?? null
-  for (const group of articleVersionGroups()) {
+  for (const group of groups) {
     const article = document.createElement('section')
     article.className = 'article-group'
-    const isCollapsed = collapsedArticleIds.has(group.articleId)
+    const isCollapsed = showArchived || !expandedArticleIds.has(group.articleId)
     article.dataset.collapsed = String(isCollapsed)
     const toggle = document.createElement('button')
     toggle.className = 'article-group-toggle'
@@ -905,8 +920,9 @@ function renderVersions() {
     count.textContent = `${group.versions.length} 个版本`
     toggle.append(chevron, title, count)
     toggle.addEventListener('click', () => {
-      if (collapsedArticleIds.has(group.articleId)) collapsedArticleIds.delete(group.articleId)
-      else collapsedArticleIds.add(group.articleId)
+      if (showArchived) return
+      if (expandedArticleIds.has(group.articleId)) expandedArticleIds.delete(group.articleId)
+      else expandedArticleIds.add(group.articleId)
       renderVersions()
     })
     const versions = document.createElement('div')
@@ -925,11 +941,14 @@ function renderVersions() {
       note.textContent = versionNote(match)
       const meta = document.createElement('small')
       meta.className = 'version-meta'
-      meta.textContent = `${match.updatedAt.replace('T', ' ').replace('+00:00', ' UTC')}${canReuseImages ? ' · 图片可复用' : ''}`
+      const updated = new Date(match.updatedAt)
+      const time = Number.isNaN(updated.getTime()) ? match.updatedAt : updated.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
+      meta.textContent = `${time}${canReuseImages ? ' · 图片可复用' : ''}`
+      meta.title = match.updatedAt
       const button = document.createElement('button')
       button.className = 'version-apply'
       button.type = 'button'
-      button.textContent = '写'
+      button.textContent = '写入'
       button.title = canReuseImages ? '写入当前编辑器；图片可直接复用' : '写入当前编辑器'
       button.disabled = busy
       button.addEventListener('click', () => void applyVersion(selected))
@@ -939,7 +958,24 @@ function renderVersions() {
       row.append(detail, button)
       versions.append(row)
     }
-    article.append(toggle, versions)
+    const archiveButton = document.createElement('button')
+    archiveButton.type = 'button'
+    archiveButton.className = 'article-archive'
+    archiveButton.textContent = showArchived ? '恢复' : '归档'
+    archiveButton.setAttribute('aria-label', `${showArchived ? '恢复' : '归档'}文章：${group.title}`)
+    archiveButton.title = showArchived ? '恢复到正在编辑列表' : '收起整篇文章及其所有版本'
+    archiveButton.disabled = Boolean(writeAbortController)
+    archiveButton.addEventListener('click', () => {
+      GM_setValue(ARCHIVE_KEY_PREFIX + group.articleId, !showArchived)
+      renderVersions()
+    })
+    const heading = document.createElement('div')
+    heading.className = 'article-heading'
+    heading.append(toggle, archiveButton)
+    if (showArchived) {
+      toggle.disabled = true
+      article.append(heading)
+    } else article.append(heading, versions)
     element.append(article)
   }
   element.scrollTop = previousScrollTop
@@ -1125,6 +1161,52 @@ function injectStyles() {
     #${ROOT_ID}-cancel { background:transparent; border:1px solid #86505a; border-radius:8px; color:#ffb4bd; font-weight:700; margin-top:10px; padding:8px 10px; width:100%; }
     #${ROOT_ID}-cancel:hover { background:#41222a; }
     #${ROOT_ID}-cancel:disabled { color:#95717a; cursor:wait; }
+    /* Light, compact writing workspace. Keep all rules scoped to the panel. */
+    #${ROOT_ID} { --panel:#f8fafc; --surface:#fff; --line:#e2e8f0; --muted:#64748b; --text:#172b4d; background:var(--panel); color:var(--text); width:380px; max-width:calc(100vw - 24px); box-sizing:border-box; padding:16px; border:1px solid #dbe3ed; border-radius:18px; box-shadow:0 16px 48px #25385826,0 2px 8px #25385812; }
+    #${ROOT_ID} *, #${ROOT_ID} *::before { box-sizing:border-box; }
+    #${ROOT_ID} button:focus-visible { outline:2px solid #2563eb; outline-offset:2px; }
+    #${ROOT_ID}-header { gap:8px; flex-wrap:wrap; border:0; padding:0; margin-bottom:14px; }
+    #${ROOT_ID}-title { flex:1; font-size:16px; letter-spacing:-.3px; }
+    #${ROOT_ID}-connection { flex:0 0 auto; color:#64748b; background:#eef2f6; border:0; font-size:10px; padding:5px 7px; }
+    #${ROOT_ID}-connection[data-online="true"] { color:#13795b; background:#e6f5ee; }
+    #${ROOT_ID}-collapse, #${ROOT_ID}-refresh { background:#fff; border:1px solid #e2e8f0; color:#64748b; border-radius:9px; width:28px; height:28px; flex-shrink:0; }
+    #${ROOT_ID}-collapse:hover, #${ROOT_ID}-refresh:hover { background:#eef2ff; border-color:#c7d2fe; color:#3159bf; }
+    #${ROOT_ID} .panel-tabs { display:flex; gap:4px; padding:4px; background:#eaf0f6; border-radius:10px; }
+    #${ROOT_ID} .panel-tabs button { flex:1; border:0; background:transparent; color:#64748b; padding:7px 8px; border-radius:7px; font-size:12px; }
+    #${ROOT_ID} .panel-tabs button[aria-pressed="true"] { color:#2449a6; background:#fff; box-shadow:0 1px 3px #172b4d12; font-weight:700; }
+    #${ROOT_ID}-versions { border:0; margin-top:12px; max-height:min(480px,calc(100vh - 210px)); padding:1px; scrollbar-width:thin; scrollbar-color:#cbd5e1 transparent; }
+    #${ROOT_ID} .article-group { background:#fff; border:1px solid #e2e8f0; border-radius:12px; margin-bottom:10px; overflow:hidden; }
+    #${ROOT_ID} .article-group:last-child { margin-bottom:0; }
+    #${ROOT_ID} .article-heading { display:flex; align-items:center; gap:4px; padding-right:10px; }
+    #${ROOT_ID} .article-group-toggle { min-width:0; flex:1; flex-wrap:wrap; gap:5px; padding:12px 10px; border-radius:8px; }
+    #${ROOT_ID} .article-group-toggle:disabled { cursor:default; opacity:1; }
+    #${ROOT_ID} .article-group-chevron { color:#94a3b8; width:12px; }
+    #${ROOT_ID} .article-group-title { font-size:13px; font-weight:600; line-height:1.55; overflow-wrap:anywhere; }
+    #${ROOT_ID} .article-group-count { width:100%; padding-left:17px; font-size:10px; }
+    #${ROOT_ID} .article-archive { flex-shrink:0; border:1px solid #e2e8f0; color:#64748b; background:#fff; padding:5px 8px; border-radius:7px; font-size:11px; }
+    #${ROOT_ID} .article-archive:hover { color:#3159bf; background:#eef2ff; border-color:#c7d2fe; }
+    #${ROOT_ID} .article-archive:disabled { opacity:.5; cursor:wait; }
+    #${ROOT_ID} .article-version-list { border-top:1px solid #eef2f6; margin:0 12px; }
+    #${ROOT_ID} .version-row { border-color:#f1f5f9; padding:10px 0; gap:8px; }
+    #${ROOT_ID} .version-note { color:#334155; font-weight:500; font-size:12px; overflow-wrap:anywhere; }
+    #${ROOT_ID} .version-tag { color:#49699b; background:#edf2fa; border-radius:4px; padding:1px 5px; font-size:10px; }
+    #${ROOT_ID} .version-meta { color:#94a3b8; font-size:10px; }
+    #${ROOT_ID} .version-apply { background:#edf3ff; border-color:#dce7ff; color:#3159bf; font-size:11px; padding:6px 10px; min-width:44px; }
+    #${ROOT_ID} .version-apply:hover { color:#fff; background:#3159bf; border-color:#3159bf; }
+    #${ROOT_ID} .version-apply:disabled { color:#94a3b8; background:#f1f5f9; border-color:#e2e8f0; }
+    #${ROOT_ID} .version-row[data-reusable="true"] .version-apply { color:#13795b; background:#e6f5ee; border-color:#c7eadc; }
+    #${ROOT_ID} .empty { padding:32px 12px; font-size:12px; line-height:1.8; }
+    #${ROOT_ID}-message { color:#64748b; background:#f1f5f9; border-color:#e2e8f0; font-size:12px; }
+    #${ROOT_ID}-message[data-kind="success"] { color:#13795b; background:#e6f5ee; border-color:#c7eadc; }
+    #${ROOT_ID}-message[data-kind="warning"] { color:#946200; background:#fff8e6; border-color:#f5e3b1; }
+    #${ROOT_ID}-message[data-kind="error"] { color:#b42338; background:#fff0f2; border-color:#f8cdd4; }
+    #${ROOT_ID}-message[data-kind="working"] { color:#3159bf; background:#edf3ff; border-color:#dce7ff; }
+    #${ROOT_ID}-cancel { color:#b42338; border-color:#f8cdd4; font-size:12px; }
+    #${ROOT_ID}-cancel:hover { background:#fff0f2; }
+    #${ROOT_ID}-mention-picker { color:#334155; background:#edf3ff; border-color:#dce7ff; }
+    #${ROOT_ID} .mention-candidate { color:#334155; background:#fff; border-color:#dce7ff; }
+    #${ROOT_ID} .mention-candidate:hover { background:#edf3ff; }
+    #${ROOT_ID}[data-collapsed="true"] #${ROOT_ID}-header { border:0; padding:0; }
   `
   document.head.append(style)
 }
@@ -1136,22 +1218,32 @@ function createPanel() {
   root.id = ROOT_ID
   root.innerHTML = `
     <div id="${ROOT_ID}-header">
-      <span id="${ROOT_ID}-title">文章版本${DEV_MODE ? ` <small style="color:#2563eb;font-size:11px">${DEV_LABEL}</small>` : ''}</span>
+      <span id="${ROOT_ID}-title">Space Writer${DEV_MODE ? ` <small>${DEV_LABEL}</small>` : ''}</span>
       <div id="${ROOT_ID}-connection" data-online="false">Bridge 离线</div>
       <button id="${ROOT_ID}-refresh" type="button" title="刷新版本" aria-label="刷新版本">↻</button>
       <button id="${ROOT_ID}-collapse" type="button" title="最小化面板">—</button>
     </div>
     <div class="panel-body">
+      <div class="panel-tabs" aria-label="文章列表">
+        <button id="${ROOT_ID}-active" type="button" aria-pressed="true">正在编辑 · 0</button>
+        <button id="${ROOT_ID}-archive" type="button" aria-pressed="false">已归档 · 0</button>
+      </div>
       <div id="${ROOT_ID}-mention-picker" hidden></div>
       <div id="${ROOT_ID}-versions"></div>
       <button id="${ROOT_ID}-cancel" type="button" hidden>取消本次写入</button>
-      <p id="${ROOT_ID}-message">点击“刷新版本”读取当前目标的本地文章。</p>
+      <p id="${ROOT_ID}-message" aria-live="polite"></p>
     </div>
   `
   const refresh = root.querySelector<HTMLButtonElement>(`#${ROOT_ID}-refresh`)
   const collapse = root.querySelector<HTMLButtonElement>(`#${ROOT_ID}-collapse`)
   const cancel = root.querySelector<HTMLButtonElement>(`#${ROOT_ID}-cancel`)
   refresh?.addEventListener('click', () => void refreshVersions())
+  for (const view of ['active', 'archive']) {
+    root.querySelector(`#${ROOT_ID}-${view}`)?.addEventListener('click', () => {
+      showArchived = view === 'archive'
+      renderVersions()
+    })
+  }
   collapse?.addEventListener('click', () => setPanelCollapsed(root, root.dataset.collapsed !== 'true'))
   cancel?.addEventListener('click', () => {
     if (!writeAbortController || writeAbortController.signal.aborted) return

@@ -11,11 +11,22 @@ On a freshly loaded thread, kintone requires one real user click on its native
 `发表评论…` entry before it creates the rich editor. After it expands, select the
 desired version from the panel.
 
-The floating panel intentionally contains only:
+The floating panel uses a light card layout. Articles start collapsed; expand
+one to select a retained version. Dates use the browser's local time.
+
+Use the article's `归档` button to hide the entire article from `正在编辑`.
+The `已归档` view lists archived articles and provides `恢复`. Archive flags are
+stored in Tampermonkey for this browser, keyed by article ID, so refreshing the
+page or receiving more versions of that article does not unarchive it. No
+article files or Bridge packages are deleted. Other browsers have their own
+archive preferences.
+
+The floating panel contains:
 
 - Bridge connection state;
-- a `刷新版本` button, which is the only action that discovers a local Bridge;
-- retained article versions, each with a compact `写` button;
+- a `刷新版本` button in addition to automatic Bridge discovery and refresh;
+- active and archived article views;
+- retained article versions, each with a compact `写入` button;
 - the current result or error message.
 
 It writes only into the thread where the user has personally opened the rich
