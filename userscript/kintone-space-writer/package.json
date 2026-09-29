@@ -1,6 +1,6 @@
 {
   "name": "kintone-space-writer-userscript",
-  "version": "0.2.5",
+  "version": "0.2.8",
   "private": true,
   "description": "Local companion userscript for injecting Ready rich articles into kintone Space threads",
   "type": "module",

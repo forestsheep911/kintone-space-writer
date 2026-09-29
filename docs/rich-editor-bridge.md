@@ -46,7 +46,7 @@ post without an open browser editor.
     {"type": "paragraph", "text": "先说结论。", "bold": true},
     {"type": "paragraph", "text": "重点词示例", "runs": [{"text": "重点词", "bold": true, "color": "#0F766E"}, {"text": "示例", "backgroundColor": "#FEF3C7"}]},
     {"type": "image", "fileName": "chart.png", "caption": "图 1：本周趋势", "width": 500},
-    {"type": "bulletList", "items": ["第一项", "第二项"]},
+    {"type": "bulletList", "items": ["第一项", {"runs": [{"text": "第二项／"}, {"text": "第二项的译文", "backgroundColor": "#FEF3C7"}]}]},
     {"type": "paragraph", "text": "查看详情", "link": "https://example.com"}
   ]
 }
@@ -55,7 +55,7 @@ post without an open browser editor.
 Text blocks: `heading`, `paragraph`, `quote`, `bulletList`, `numberList`, and
 `divider`, and `imageRow`. Text formatting includes bold, italic, underline,
 link, foreground and background hex colors, font size, and alignment. Paragraphs,
-headings, and quotes can also use `runs`: ordered inline text fragments whose
+headings, quotes, and individual list items can also use `runs`: ordered inline text fragments whose
 own bold, italic, underline, link, color, background color, and font size apply
 only to that fragment. Text blocks default to left alignment; use `align` only
 when a different alignment is intentional. An
@@ -113,12 +113,16 @@ python <plugin>/scripts/kintone_article_bridge.py mark-ready `
   --assets-root assets
 ```
 
-Every distinct article version remains available in the local Bridge. On the
-intended Space thread, click `刷新版本` to discover the local Bridge and list
-those versions, then click its `写` button to write that
-version into the open native editor. Nothing discovers ports, polls the Bridge,
-or injects content in the background. An upload or selector failure is shown in
-the panel without publishing anything.
+Every distinct article version remains available in the local Bridge. When the
+version panel is open on the intended Space thread, it discovers the local
+Bridge automatically and checks its version list every five seconds. Newly
+marked Ready packages therefore appear without clicking `刷新版本`; the button
+remains available for an immediate manual retry. The panel re-scans the bounded
+port range every 30 seconds so a newly started Bridge is picked up as well.
+
+This automatic refresh never writes into the editor or publishes. The user
+still clicks the version's `写` button to write it into the open native editor.
+An upload or selector failure is shown in the panel without publishing anything.
 
 Keep `id` and `title` stable while revising one article. The panel groups
 versions by `id`, presents the title once as a collapsible article heading, and
@@ -180,9 +184,9 @@ The companion metadata covers normal and SecureAccess-style hosts for
 
 This is a local Tampermonkey installation, not a Store release. `pnpm dev` is
 for selector debugging; install the `pnpm build` artifact for normal testing.
-The plugin starts the Bridge on demand. The companion discovers the active
-Bridge in the fixed loopback range only after the user clicks `刷新版本`, then
-verifies its health token. No port entry is required.
+The plugin starts the Bridge on demand. While its version panel is open, the
+companion discovers the active Bridge in the fixed loopback range and verifies
+its health token automatically; no port entry is required.
 
 ## Safety and compatibility
 

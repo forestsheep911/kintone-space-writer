@@ -236,8 +236,38 @@ def validate_article(article: dict[str, Any]) -> None:
             raise BridgeError(f"Article block {index} must define text")
         if block_type in ("bulletList", "numberList"):
             items = block.get("items")
-            if not isinstance(items, list) or not items or not all(isinstance(item, str) for item in items):
-                raise BridgeError(f"Article list block {index} must define string items")
+            if not isinstance(items, list) or not items:
+                raise BridgeError(f"Article list block {index} must define non-empty items")
+            for item_index, item in enumerate(items, start=1):
+                if isinstance(item, str):
+                    continue
+                if not isinstance(item, dict):
+                    raise BridgeError(f"Article list block {index} item {item_index} must be a string or object")
+                item_runs = item.get("runs")
+                if not isinstance(item.get("text"), str) and (not isinstance(item_runs, list) or not item_runs):
+                    raise BridgeError(f"Article list block {index} item {item_index} must define text or non-empty runs")
+                validate_text_style(item, f"Article list block {index} item {item_index}")
+                if item_runs is not None:
+                    if not isinstance(item_runs, list) or not item_runs:
+                        raise BridgeError(f"Article list block {index} item {item_index} runs must be a non-empty array")
+                    for run_index, run in enumerate(item_runs, start=1):
+                        if not isinstance(run, dict):
+                            raise BridgeError(f"Article list block {index} item {item_index} run {run_index} must be an object")
+                        mention = run.get("mention")
+                        if mention is None and not isinstance(run.get("text"), str):
+                            raise BridgeError(f"Article list block {index} item {item_index} run {run_index} must define text or mention")
+                        if mention is not None:
+                            if (
+                                not isinstance(mention, dict)
+                                or not isinstance(mention.get("query"), str)
+                                or not mention["query"].strip()
+                                or len(mention["query"]) > 100
+                                or mention.get("entityType") not in (None, "USER", "GROUP", "ORGANIZATION")
+                            ):
+                                raise BridgeError(
+                                    f"Article list block {index} item {item_index} run {run_index} mention must define query and an optional valid entityType"
+                                )
+                        validate_text_style(run, f"Article list block {index} item {item_index} run {run_index}")
         if block_type == "heading" and block.get("level", 2) not in (1, 2, 3):
             raise BridgeError(f"Article heading block {index} level must be 1, 2, or 3")
         if block.get("align") not in (None, "left", "center", "right"):

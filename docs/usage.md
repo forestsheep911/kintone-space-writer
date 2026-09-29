@@ -122,8 +122,9 @@ This starts or reuses the Bridge. It does not create a Windows startup service.
 
 Open or refresh the intended Space thread.
 
-- Click `刷新版本` in the companion panel to read retained local article versions.
-  This is the only time the companion discovers the local Bridge.
+- The companion panel automatically discovers the local Bridge and refreshes
+  retained versions while it is open. New versions normally appear within five
+  seconds; use `刷新版本` when an immediate manual retry is useful.
 - If the page still shows `发表评论…`, click that native entry once so kintone
   creates the rich editor.
 - Click the compact `写` button for the desired version. Clicking a version
@@ -137,8 +138,9 @@ Open or refresh the intended Space thread.
 
 For one article, keep the same `id` in its rich JSON and change its `version`
 or content when revising. Run `mark-ready` again after every local revision.
-All retained revisions appear after `刷新版本`. Select the version to apply;
-there is no background sync. Treat the local JSON as authoritative and avoid
+All retained revisions appear automatically while the panel is open. Select the
+version to apply; automatic sync only updates the local version list and never
+writes into the editor. Treat the local JSON as authoritative and avoid
 manually editing the mirrored kintone text.
 
 After a successful native Publish, kintone removes the editor. If Publish fails

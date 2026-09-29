@@ -31,11 +31,23 @@ type TextRun = {
   fontSize?: 1 | 2 | 3 | 4 | 5 | 6 | 7
 }
 
+type ListItem = {
+  text?: string
+  runs?: TextRun[]
+  bold?: boolean
+  italic?: boolean
+  underline?: boolean
+  link?: string
+  color?: string
+  backgroundColor?: string
+  fontSize?: 1 | 2 | 3 | 4 | 5 | 6 | 7
+}
+
 type TextBlock = {
   type: 'heading' | 'paragraph' | 'quote' | 'bulletList' | 'numberList' | 'divider'
   text?: string
   runs?: TextRun[]
-  items?: string[]
+  items?: Array<string | ListItem>
   level?: 1 | 2 | 3
   bold?: boolean
   italic?: boolean
@@ -141,14 +153,18 @@ const PORT_END = 8807
 const CLIENT_KEY = 'ksw-standard-client-id'
 const PORTS_KEY = 'ksw-standard-bridge-ports'
 const PANEL_STATE_KEY = 'ksw-standard-panel-state'
+const AUTO_REFRESH_INTERVAL_MS = 5_000
+const AUTO_DISCOVERY_INTERVAL_MS = 30_000
 const DEV_MODE = import.meta.env.DEV
-const DEV_LABEL = 'DEV 0.2.5'
+const DEV_LABEL = 'DEV 0.2.8'
 
 let editor: HTMLElement | null = null
 let busy = false
 let connections: BridgeConnection[] = []
 let discoveryInFlight: Promise<BridgeConnection[]> | null = null
 let versionMatches: VersionMatch[] = []
+let autoRefreshTimer: number | null = null
+let lastDiscoveryAt = 0
 let imageFileKeys = new Map<string, string>()
 let imageCacheEditor: HTMLElement | null = null
 let reusableImagePackageIds = new Set<string>()
@@ -259,6 +275,13 @@ async function discoverBridges() {
   } finally {
     discoveryInFlight = null
   }
+}
+
+function versionSnapshot(matches: VersionMatch[]) {
+  return matches
+    .map(({ connection, summary }) => `${connection.instanceId}:${summary.id}:${summary.hash}:${summary.status}:${summary.updatedAt}`)
+    .sort()
+    .join('|')
 }
 
 function authorizedBridgeUrl(connection: BridgeConnection, value: string) {
@@ -446,23 +469,35 @@ function inlineTextMarkup(value: TextRun | TextBlock, mentions = new Map<TextRun
 }
 
 function textMarkup(block: TextBlock, mentions: Map<TextRun, MentionCandidate>) {
-  const styled = block.runs?.length ? block.runs.map((run) => inlineTextMarkup(run, mentions)).join('') : inlineTextMarkup(block)
+  const hasRuns = Boolean(block.runs?.length)
+  const styled = hasRuns ? block.runs!.map((run) => inlineTextMarkup(run, mentions)).join('') : inlineTextMarkup(block)
+  const color = safeColor(block.color)
+  const backgroundColor = safeColor(block.backgroundColor)
+  const inlineStyle = [color && `color:${color}`, backgroundColor && `background-color:${backgroundColor}`]
+    .filter(Boolean)
+    .join(';')
+  const withBlockStyle = hasRuns && inlineStyle ? `<span style="${inlineStyle}">${styled}</span>` : styled
   const align = block.align && ['left', 'center', 'right'].includes(block.align) ? block.align : 'left'
   const alignment = ` style="text-align:${align}"`
   switch (block.type) {
     case 'heading':
-      return `<div${alignment}><font size="${block.level === 1 ? 6 : block.level === 3 ? 4 : 5}"><strong>${styled}</strong></font></div><div><br></div>`
+      return `<div${alignment}><font size="${block.level === 1 ? 6 : block.level === 3 ? 4 : 5}"><strong>${withBlockStyle}</strong></font></div><div><br></div>`
     case 'quote':
-      return `<div${alignment}>「${styled}」</div><div><br></div>`
+      return `<div${alignment}>「${withBlockStyle}」</div><div><br></div>`
     case 'bulletList':
-      return `<ul${alignment}>${(block.items ?? []).map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul><div><br></div>`
+      return `<ul${alignment}>${(block.items ?? []).map((item) => `<li>${listItemMarkup(item, mentions)}</li>`).join('')}</ul><div><br></div>`
     case 'numberList':
-      return `<ol${alignment}>${(block.items ?? []).map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ol><div><br></div>`
+      return `<ol${alignment}>${(block.items ?? []).map((item) => `<li>${listItemMarkup(item, mentions)}</li>`).join('')}</ol><div><br></div>`
     case 'divider':
       return '<div>────────</div><div><br></div>'
     default:
-      return `<div${alignment}>${styled || '<br>'}</div><div><br></div>`
+      return `<div${alignment}>${withBlockStyle || '<br>'}</div><div><br></div>`
   }
+}
+
+function listItemMarkup(item: string | ListItem, mentions: Map<TextRun, MentionCandidate>) {
+  if (typeof item === 'string') return escapeHtml(item)
+  return item.runs?.length ? item.runs.map((run) => inlineTextMarkup(run, mentions)).join('') : inlineTextMarkup(item)
 }
 
 function getRequestToken() {
@@ -578,7 +613,12 @@ function chooseMentionCandidate(candidates: MentionCandidate[], signal: AbortSig
 
 async function resolveArticleMentions(article: RichArticle, signal: AbortSignal) {
   const mentions = new Map<TextRun, MentionCandidate>()
-  const runs = article.blocks.flatMap((block) => 'runs' in block && Array.isArray(block.runs) ? block.runs : [])
+  const runs = article.blocks.flatMap((block) => [
+    ...('runs' in block && Array.isArray(block.runs) ? block.runs : []),
+    ...((block.type === 'bulletList' || block.type === 'numberList')
+      ? (block.items ?? []).flatMap((item) => typeof item === 'string' || !Array.isArray(item.runs) ? [] : item.runs)
+      : []),
+  ])
   for (const run of runs) {
     if (!run.mention) continue
     renderMessage(`正在搜索提及对象：${run.mention.query}`, 'working')
@@ -905,29 +945,49 @@ function renderVersions() {
   element.scrollTop = previousScrollTop
 }
 
-async function refreshVersions() {
+async function refreshVersions(options: { automatic?: boolean; forceDiscovery?: boolean } = {}) {
   if (busy) return
+  const automatic = options.automatic ?? false
   busy = true
-  renderMessage('正在发现本地 Bridge 并读取版本…', 'working')
+  if (!automatic) renderMessage('正在发现本地 Bridge 并读取版本…', 'working')
   try {
-    const bridges = await discoverBridges()
+    const shouldDiscover = options.forceDiscovery || !connections.length || Date.now() - lastDiscoveryAt >= AUTO_DISCOVERY_INTERVAL_MS
+    const bridges = shouldDiscover ? await discoverBridges() : connections
+    if (shouldDiscover) lastDiscoveryAt = Date.now()
     if (!bridges.length) {
+      const changed = versionMatches.length > 0
       versionMatches = []
-      renderVersions()
-      renderMessage('没有发现本地 Bridge。请先在本地准备文章。', 'error')
+      if (changed || !automatic) renderVersions()
+      if (!automatic) renderMessage('没有发现本地 Bridge。请先在本地准备文章。', 'error')
       return
     }
-    versionMatches = (await Promise.all(
+    const nextMatches = (await Promise.all(
       bridges.map(async (connection) => (await listVersions(connection)).map((summary) => ({ ...summary, connection, summary }))),
     )).flat()
-    renderVersions()
-    renderMessage(versionMatches.length ? `已读取 ${versionMatches.length} 个本地版本。` : '没有可用的本地版本。', versionMatches.length ? 'success' : 'warning')
+    const changed = versionSnapshot(nextMatches) !== versionSnapshot(versionMatches)
+    versionMatches = nextMatches
+    if (changed || !automatic) renderVersions()
+    if (!automatic) renderMessage(versionMatches.length ? `已读取 ${versionMatches.length} 个本地版本。` : '没有可用的本地版本。', versionMatches.length ? 'success' : 'warning')
   } catch (error) {
-    renderMessage(error instanceof Error ? error.message : String(error), 'error')
+    if (!automatic) renderMessage(error instanceof Error ? error.message : String(error), 'error')
   } finally {
     busy = false
+    // The initial automatic refresh renders new versions before the request has
+    // cleared `busy`; render again so the "写" buttons become enabled.
     renderVersions()
   }
+}
+
+function startAutoRefresh() {
+  if (autoRefreshTimer !== null) return
+  void refreshVersions({ automatic: true, forceDiscovery: true })
+  autoRefreshTimer = window.setInterval(() => void refreshVersions({ automatic: true }), AUTO_REFRESH_INTERVAL_MS)
+}
+
+function stopAutoRefresh() {
+  if (autoRefreshTimer === null) return
+  window.clearInterval(autoRefreshTimer)
+  autoRefreshTimer = null
 }
 
 async function applyVersion(match: VersionMatch) {
@@ -1013,22 +1073,22 @@ function injectStyles() {
   const style = document.createElement('style')
   style.id = STYLE_ID
   style.textContent = `
-    #${ROOT_ID} { --panel:#101827; --surface:#182235; --surface-strong:#202d43; --line:#2b3a53; --muted:#91a0b8; --text:#f4f7fb; --accent:#4f8cff; --accent-strong:#2f6feb; --success:#36d399; background:var(--panel); border:1px solid #2c3b55; border-radius:14px; box-shadow:0 20px 48px rgba(2,6,23,.38); color:var(--text); font:13px/1.45 Inter,ui-sans-serif,system-ui,sans-serif; padding:12px; position:fixed; right:16px; top:16px; width:336px; z-index:2147483646; }
-    #${ROOT_ID}-header { align-items:center; cursor:grab; display:flex; gap:10px; justify-content:space-between; margin:0 0 14px; padding:3px 2px 13px; border-bottom:1px solid var(--line); user-select:none; }
+    #${ROOT_ID} { --panel:#101827; --surface:#182235; --surface-strong:#202d43; --line:#2b3a53; --muted:#91a0b8; --text:#f4f7fb; --accent:#4f8cff; --accent-strong:#2f6feb; --success:#36d399; background:var(--panel); border:1px solid #2c3b55; border-radius:14px; box-shadow:0 20px 48px rgba(2,6,23,.38); color:var(--text); font:13px/1.45 Inter,ui-sans-serif,system-ui,sans-serif; padding:10px 12px 12px; position:fixed; right:16px; top:16px; width:336px; z-index:2147483646; }
+    #${ROOT_ID}-header { align-items:center; cursor:grab; display:flex; gap:8px; margin:0 0 10px; padding:0 0 10px; border-bottom:1px solid var(--line); user-select:none; }
     #${ROOT_ID}-header:active { cursor:grabbing; }
-    #${ROOT_ID}-title { display:flex; flex-direction:column; font-size:17px; font-weight:750; letter-spacing:0; line-height:1.15; }
-    #${ROOT_ID}-title small { color:#7ea9ff !important; font-size:10px !important; font-weight:700; letter-spacing:.08em; margin-top:4px; text-transform:uppercase; }
-    #${ROOT_ID}-collapse { align-items:center; background:var(--surface-strong); border:1px solid #344561; border-radius:50%; color:#d7e3f7; display:flex; font-size:18px; height:30px; justify-content:center; line-height:1; padding:0; transition:background .15s ease, transform .15s ease; width:30px; }
+    #${ROOT_ID}-title { font-size:16px; font-weight:750; letter-spacing:0; line-height:30px; white-space:nowrap; }
+    #${ROOT_ID}-title small { color:#7ea9ff !important; font-size:10px !important; font-weight:700; letter-spacing:.08em; margin-left:5px; text-transform:uppercase; vertical-align:1px; }
+    #${ROOT_ID}-collapse, #${ROOT_ID}-refresh { align-items:center; background:var(--surface-strong); border:1px solid #344561; border-radius:50%; color:#d7e3f7; display:flex; font-size:18px; height:30px; justify-content:center; line-height:1; padding:0; transition:background .15s ease, transform .15s ease; width:30px; }
     #${ROOT_ID}-collapse:hover { background:#30466b; transform:translateY(-1px); }
-    #${ROOT_ID}[data-collapsed="true"] { padding:10px 12px; width:auto; }
+    #${ROOT_ID}[data-collapsed="true"] { padding:5px; width:auto; }
     #${ROOT_ID}[data-collapsed="true"] #${ROOT_ID}-header { margin:0; }
+    #${ROOT_ID}[data-collapsed="true"] #${ROOT_ID}-title, #${ROOT_ID}[data-collapsed="true"] #${ROOT_ID}-connection, #${ROOT_ID}[data-collapsed="true"] #${ROOT_ID}-refresh { display:none; }
     #${ROOT_ID}[data-collapsed="true"] .panel-body { display:none; }
-    #${ROOT_ID}-connection { align-items:center; background:#132a29; border:1px solid #1d4a43; border-radius:999px; color:#81e6bd; display:inline-flex; font-size:12px; gap:7px; margin:0 0 12px; padding:5px 9px; }
+    #${ROOT_ID}-connection { align-items:center; background:#132a29; border:1px solid #1d4a43; border-radius:999px; color:#81e6bd; display:inline-flex; flex:1; font-size:11px; gap:6px; min-width:0; overflow:hidden; padding:5px 8px; text-overflow:ellipsis; white-space:nowrap; }
     #${ROOT_ID}-connection::before { background:#f87171; border-radius:50%; box-shadow:0 0 0 3px rgba(248,113,113,.14); content:''; height:7px; width:7px; }
     #${ROOT_ID}-connection[data-online="true"]::before { background:var(--success); box-shadow:0 0 0 3px rgba(54,211,153,.14); }
     #${ROOT_ID} button { cursor:pointer; font:inherit; }
-    #${ROOT_ID}-refresh { background:transparent; border:1px solid #405475; border-radius:8px; color:#d8e5fb; font-weight:650; padding:8px 10px; width:100%; }
-    #${ROOT_ID}-refresh:hover { background:#223149; border-color:#5d7eaf; }
+    #${ROOT_ID}-refresh:hover { background:#30466b; border-color:#5d7eaf; transform:translateY(-1px); }
     #${ROOT_ID}-mention-picker { background:#1b2639; border:1px solid #315a93; border-radius:8px; color:#d8e5fb; margin-top:10px; padding:9px; }
     #${ROOT_ID}-mention-picker strong { display:block; font-size:12px; margin-bottom:7px; }
     #${ROOT_ID} .mention-candidate { background:#223149; border:1px solid #405475; border-radius:6px; color:#d8e5fb; display:block; margin-top:6px; overflow:hidden; padding:7px 8px; text-align:left; text-overflow:ellipsis; white-space:nowrap; width:100%; }
@@ -1077,11 +1137,11 @@ function createPanel() {
   root.innerHTML = `
     <div id="${ROOT_ID}-header">
       <span id="${ROOT_ID}-title">文章版本${DEV_MODE ? ` <small style="color:#2563eb;font-size:11px">${DEV_LABEL}</small>` : ''}</span>
+      <div id="${ROOT_ID}-connection" data-online="false">Bridge 离线</div>
+      <button id="${ROOT_ID}-refresh" type="button" title="刷新版本" aria-label="刷新版本">↻</button>
       <button id="${ROOT_ID}-collapse" type="button" title="最小化面板">—</button>
     </div>
     <div class="panel-body">
-      <div id="${ROOT_ID}-connection" data-online="false">Bridge 离线</div>
-      <button id="${ROOT_ID}-refresh" type="button">刷新版本</button>
       <div id="${ROOT_ID}-mention-picker" hidden></div>
       <div id="${ROOT_ID}-versions"></div>
       <button id="${ROOT_ID}-cancel" type="button" hidden>取消本次写入</button>
@@ -1108,6 +1168,7 @@ function createPanel() {
   }
   setPanelCollapsed(root, restored?.collapsed ?? false)
   makePanelDraggable(root)
+  startAutoRefresh()
 }
 
 function maintainPage() {
@@ -1115,6 +1176,7 @@ function maintainPage() {
     createPanel()
   } else {
     document.querySelector(`#${ROOT_ID}`)?.remove()
+    stopAutoRefresh()
   }
 }
 

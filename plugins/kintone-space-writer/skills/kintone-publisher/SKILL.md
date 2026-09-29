@@ -35,8 +35,9 @@ python <plugin>/scripts/kintone_article_bridge.py mark-ready --workspace . --art
 `mark-ready` is idempotent. A new version of the same article is retained beside
 earlier versions; the same unchanged version is not queued twice. The Bridge
 binds only to `127.0.0.1`, chooses an available port in 8787–8807, and exits
-after an idle period. The companion discovers this bounded range through
-`/health` only after the user clicks `刷新版本`, then uses its returned token.
+after an idle period. While its panel is open, the companion discovers this
+bounded range through `/health`, then uses its returned token and refreshes the
+version list automatically.
 Do not create a Windows startup task or long-running service.
 
 For an unpublished rich article, keep `article.id` stable and call `mark-ready`
@@ -46,8 +47,9 @@ mirrored kintone body.
 
 After Ready:
 
-- ask the user to open the intended Space thread and click `刷新版本` to list
-  retained local versions; no background polling or injection occurs;
+- ask the user to open the intended Space thread; retained local versions appear
+  automatically while the panel is open (the `刷新版本` button remains an
+  immediate manual retry); no automatic injection occurs;
 - if the page still shows the collapsed `发表评论…` entry, ask the user to
   click it once. kintone requires a real user gesture to create the rich editor;
 - the user clicks the desired version's `写` button, which may replace a
