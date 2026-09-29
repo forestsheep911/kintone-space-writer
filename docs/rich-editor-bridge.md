@@ -173,16 +173,22 @@ pnpm install
 pnpm build
 ```
 
-Install the generated file:
+Install the published build from the stable address:
 
 ```text
-plugins/kintone-space-writer/assets/userscript/kintone-space-writer.user.js
+https://forestsheep911.github.io/kintone-space-writer/kintone-space-writer.user.js
 ```
+
+The install page is `https://forestsheep911.github.io/kintone-space-writer/`.
+The same generated file is retained at
+`plugins/kintone-space-writer/assets/userscript/kintone-space-writer.user.js`.
+Increase the userscript package version for each release so Tampermonkey can
+detect updates through the script's `@updateURL` and `@downloadURL`.
 
 The companion metadata covers normal and SecureAccess-style hosts for
 `cybozu.com`, `cybozu.cn`, `kintone.com`, and `cybozu-dev.com`.
 
-This is a local Tampermonkey installation, not a Store release. `pnpm dev` is
+This is a Tampermonkey installation, not a Store release. `pnpm dev` is
 for selector debugging; install the `pnpm build` artifact for normal testing.
 The plugin starts the Bridge on demand. While its version panel is open, the
 companion discovers the active Bridge in the fixed loopback range and verifies

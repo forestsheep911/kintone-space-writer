@@ -32,6 +32,13 @@ The local companion source lives in
 [`docs/rich-editor-bridge.md`](docs/rich-editor-bridge.md) for the Ready protocol,
 article schema, destination confirmation, and installation path.
 
+Install or update the Tampermonkey companion from the
+[Space Writer install page](https://forestsheep911.github.io/kintone-space-writer/).
+Published builds include `@updateURL` and `@downloadURL`, so Tampermonkey can
+check for later script versions. After changing the userscript, increase its
+`package.json` version, run `pnpm build` in `userscript/kintone-space-writer`,
+and publish the generated files on `main`.
+
 ## Repository Layout
 
 ```text

@@ -42,9 +42,18 @@ pnpm install
 pnpm build
 ```
 
-Install or update:
+Install or update from the stable public address:
 
-`plugins/kintone-space-writer/assets/userscript/kintone-space-writer.user.js`
+`https://forestsheep911.github.io/kintone-space-writer/kintone-space-writer.user.js`
+
+The install page is `https://forestsheep911.github.io/kintone-space-writer/`.
+The production build copies the same generated script to both this Pages site
+and `plugins/kintone-space-writer/assets/userscript/kintone-space-writer.user.js`.
+The script includes `@updateURL` and `@downloadURL` pointing to the stable
+address. Increase `package.json`'s version for every published script change.
+Tampermonkey checks that version according to its update settings. Existing
+manual installs need one installation from the public address to acquire the
+update metadata; future releases do not need manual file copying.
 
 The base userscript identity intentionally remains compatible with the earlier
 POC, so installing this file once upgrades that script instead of leaving two
