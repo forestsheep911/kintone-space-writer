@@ -5,6 +5,17 @@ comments in kintone Space threads.
 
 The plugin is designed for article workspaces: each article or topic can keep its own drafts, local publishing configuration, assets, and publish records while reusing the same Codex plugin.
 
+## Development Direction
+
+As of 2026-10-22, `main` is the development line for a standalone Chrome
+Manifest V3 companion extension. The complete committed Tampermonkey baseline
+is preserved on `codex/archive/tampermonkey-20261022` at commit `0a370f1`.
+
+The extension migration has not been implemented yet. The existing userscript
+and Bridge remain available as the working baseline while migration proceeds.
+See [the extension migration plan](docs/chrome-extension-migration.md) for the
+branch policy, compatibility requirements, and acceptance checks.
+
 ## What This Plugin Provides
 
 - Draft and revise kintone Space articles.
@@ -35,9 +46,9 @@ article schema, destination confirmation, and installation path.
 Install or update the Tampermonkey companion from the
 [Space Writer install page](https://forestsheep911.github.io/kintone-space-writer/).
 Published builds include `@updateURL` and `@downloadURL`, so Tampermonkey can
-check for later script versions. After changing the userscript, increase its
-`package.json` version, run `pnpm build` in `userscript/kintone-space-writer`,
-and publish the generated files on `main`.
+check for later script versions. This is the existing Tampermonkey installation
+path; future companion development on `main` targets the Chrome extension.
+The archived build procedure remains available on the archive branch.
 
 ## Repository Layout
 
