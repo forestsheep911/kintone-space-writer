@@ -221,7 +221,7 @@ try {
   checks.push('browser-and-worker-restart-retains-storage-and-id')
   expect(publishes).toBe(0)
   expect(pageErrors).toEqual([])
-  const report={version:'0.4.0',id:identity.id,environment:'isolated Chromium, real Python Bridge, mocked kintone HTTPS; external network blocked',checks,uploads,publishes,pageErrors,liveTenantAcceptance:false}
+  const report={version:JSON.parse(await readFile(path.join(root,'extension/package.json'),'utf8')).version,id:identity.id,environment:'isolated Chromium, real Python Bridge, mocked kintone HTTPS; external network blocked',checks,uploads,publishes,pageErrors,liveTenantAcceptance:false}
   await writeFile(path.join(run,'report.json'),JSON.stringify(report,null,2)+'\n')
   console.log(JSON.stringify({passed:checks.length,report:path.join(run,'report.json'),id:identity.id},null,2))
 } catch(error) {

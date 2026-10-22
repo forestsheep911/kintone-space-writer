@@ -31,7 +31,9 @@ public userscript URL; extension builds do not overwrite it.
 
 The extension has fixed ID `fgagjkdojbckcoibbanfejonhlcdbkob`, derived from the
 public key in `extension/identity.json`. Builds validate that key against the
-pinned ID. ZIP distribution uses a fixed extracted directory and manual reload.
+pinned ID. ZIP distribution supports dragging the archive onto the extensions page in
+developer mode; Chromium extracts it into its unpacked extension directory.
+Manual directory loading remains an alternative.
 
 ## Compatibility requirements
 
@@ -87,3 +89,14 @@ blocked. This is not acceptance against a real tenant, certificate, enterprise
 browser policy, or Tampermonkey installation. No public Store or marketplace
 release, installed-plugin cache update, or live kintone publication is part of
 this migration.
+
+## ZIP installation clarification (0.4.1)
+
+The previous installation guide incorrectly required manual extraction. Current
+Chromium accepts `.zip` file drops in the extensions page and sends them to
+`InstallZipFileToUnpackedExtensionsDir`. Developer mode still applies. This was
+confirmed from current Chromium source; the existing browser fixtures do not
+validate operating-system file dragging. An attempted CDP drag did not populate
+native drop data (`No current drop data`), so it is not treated as a failure of
+ZIP installation or as successful drag-install acceptance. Target-browser ZIP
+upgrade and settings retention remain separate live checks.

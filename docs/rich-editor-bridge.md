@@ -174,11 +174,11 @@ pnpm check
 pnpm package
 ```
 
-Extract the ZIP from `dist/`, enable developer mode on `chrome://extensions`,
-and load the directory containing `manifest.json`. Disable the old Tampermonkey
+Drag the ZIP from `dist/` onto `chrome://extensions` with developer mode
+enabled. Chrome extracts and loads it; manual directory loading is optional. Disable the old Tampermonkey
 Space Writer script and refresh kintone. See [installation and settings
-migration](../extension/README.md). Updates replace the fixed extracted folder
-and require reloading the extension; they do not use Tampermonkey update URLs.
+migration](../extension/README.md). Updates can be delivered by dragging a new ZIP with the same public key onto
+the extensions page; they do not use Tampermonkey update URLs.
 
 The extension covers normal and SecureAccess hosts for `cybozu.com`,
 `cybozu.cn`, `kintone.com`, and `cybozu-dev.com`. Its background performs only

@@ -1,16 +1,18 @@
 # kintone Space Writer Chrome 扩展
 
-扩展版本：0.4.0。支持 Chrome 120 及以上版本，以及相应的 Chromium 版 Edge。
+扩展版本：0.4.1。支持 Chrome 120 及以上版本，以及相应的 Chromium 版 Edge。
 
 ## 安装
 
-1. 解压 `kintone-space-writer-extension-v0.4.0.zip` 到固定目录。
-2. 打开 `chrome://extensions`（Edge 使用 `edge://extensions`），启用开发者模式。
-3. 选择“加载已解压的扩展程序”，选择包含 `manifest.json` 的目录。
+1. 下载 `kintone-space-writer-extension-v0.4.1.zip`。
+2. 打开 `chrome://extensions`，启用开发者模式。
+3. 将 ZIP 文件直接拖到扩展管理页，浏览器负责解压并加载，无需手动解压。
 4. 停用旧 Tampermonkey Space Writer 脚本，再刷新已登录的 kintone 页面。
 5. 在已有 Space 话题页打开“发表评论…”，从 Space Writer 小窗选择版本并点击“写入”。检查结果后，手动点击 kintone 的发布按钮。
 
 Codex 写作插件仍负责启动本地 Bridge、准备文章和配图。扩展不需要 Vite 开发服务器，不需要 Tampermonkey，不会自动发布文章。Bridge 离线时，请先在文章工作区通过插件准备文章。
+
+“手动解压到固定目录 → 加载已解压的扩展程序”也是可用的备用方式，适合源码调试。Edge 可在 `edge://extensions` 使用这个备用入口；ZIP 拖拽行为以其实际版本为准。
 
 ## 迁移旧设置
 
@@ -26,9 +28,13 @@ Codex 写作插件仍负责启动本地 Bridge、准备文章和配图。扩展�
 
 ## 更新与回退
 
-更新时保留已安装扩展和固定解压目录，以新版文件替换该目录，再到浏览器扩展管理页点击“重新加载”，然后刷新 kintone 页面。不要卸载后重装，卸载会清除扩展本地存储。
+通过 ZIP 拖拽安装时，后续将新版 ZIP 再拖入扩展管理页；保持公钥不变，让浏览器识别为同一扩展。更新后确认版本号已变化、只保留一份扩展且归档设置仍在，再刷新 kintone 页面。
+
+通过手动解压目录安装时，也可替换固定目录中的文件，再点击扩展卡片的“重新加载”。不要卸载后重装，卸载会清除扩展本地存储。
 
 每个版本的 `manifest.json` 使用同一个公钥维持扩展 ID；公钥用于固定身份，不能验证 ZIP 来源。ZIP 方式需要手动更新，不会沿用 Tampermonkey 的更新地址。
+
+ZIP 拖拽入口及自动解压流程已核对 [Chromium 前端源码](https://github.com/chromium/chromium/blob/main/chrome/browser/resources/extensions/drag_and_drop_handler.ts)和[安装处理源码](https://github.com/chromium/chromium/blob/main/chrome/browser/extensions/api/developer_private/developer_private_functions.cc)。现有自动回归验证的是加载目录、身份与设置保留；系统文件拖拽及目标 Canary 的升级交互仍属于单独验收项。
 
 回退时停用扩展，安装 `migration/rollback-tampermonkey.user.js` 并启用旧脚本。旧脚本的原有设置仍由 Tampermonkey 保管；扩展中新修改的设置不会自动反向同步。
 

@@ -88,9 +88,9 @@ the intended thread directly in kintone.
 
 ## 5. Install The Chrome Companion Extension
 
-Extract the extension ZIP into a fixed directory. In `chrome://extensions`
-(or `edge://extensions`), enable developer mode and load the extracted directory
-containing `manifest.json`. Disable the old Tampermonkey Space Writer script,
+In `chrome://extensions`, enable developer mode and drag the extension ZIP
+onto the page. Chrome extracts and loads it. Manually extracting the ZIP and
+loading its directory remains an alternative. Disable the old Tampermonkey Space Writer script,
 then refresh the kintone thread page.
 
 See [the extension guide](../extension/README.md) for settings migration, manual

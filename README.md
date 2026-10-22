@@ -11,7 +11,7 @@ As of 2026-10-22, `main` is the development line for a standalone Chrome
 Manifest V3 companion extension. The complete committed Tampermonkey baseline
 is preserved on `codex/archive/tampermonkey-20261022` at commit `0a370f1`.
 
-The Chrome companion is now implemented as version `0.4.0` in [`extension/`](extension/README.md).
+The Chrome companion is now implemented as version `0.4.1` in [`extension/`](extension/README.md).
 It retains the local Bridge and the existing editor workflow. See the
 [extension migration record](docs/chrome-extension-migration.md) for the branch
 policy, compatibility details, and validation boundaries.
@@ -39,8 +39,9 @@ It does not:
 - manage kintone comment deletion
 
 The local companion source lives in [`extension/`](extension/README.md). Build
-with `pnpm package` there, then extract the ZIP and load its directory from
-Chrome's extensions page. Disable the old Tampermonkey script. The ZIP includes
+with `pnpm package` there, then enable developer mode and drag the ZIP onto
+Chrome's extensions page. Chrome extracts and loads it; loading a manually
+extracted directory remains an alternative. Disable the old Tampermonkey script. The ZIP includes
 a one-time settings exporter and the archived rollback script.
 
 See [`docs/rich-editor-bridge.md`](docs/rich-editor-bridge.md) for the Ready
