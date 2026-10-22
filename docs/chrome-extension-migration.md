@@ -35,6 +35,11 @@ pinned ID. ZIP distribution supports dragging the archive onto the extensions pa
 developer mode; Chromium extracts it into its unpacked extension directory.
 Manual directory loading remains an alternative.
 
+Daily development uses the fixed `dist/kintone-space-writer-extension/` build
+directory, loaded once with "Load unpacked". Rebuild into that same directory,
+reload the existing extension card, and refresh kintone. Versioned ZIPs are
+delivery artifacts; developers do not need to import one after each edit.
+
 ## Compatibility requirements
 
 - Preserve version selection, article archive/restore, panel position and

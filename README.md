@@ -328,6 +328,12 @@ Check Python syntax:
 .\.venv\Scripts\python -m py_compile plugins/kintone-space-writer/scripts/kintone_space_comment.py plugins/kintone-space-writer/scripts/kintone_article_bridge.py
 ```
 
-After changing extension code, rebuild and reload the extension from the browser
-extensions page, then refresh kintone. There is no Vite server. The plugin
-continues to start the Bridge on demand in the selected article workspace.
+For daily development, load `dist/kintone-space-writer-extension/` once using
+"Load unpacked". This build directory has a fixed name with no version suffix.
+After changing extension code, run `pnpm build` from `extension/`, click Reload
+on the existing extension card, then refresh kintone. Keep using the same
+directory; there is no need to create or import a ZIP for each development edit.
+
+Use `pnpm package` when preparing a ZIP for delivery. There is no Vite server.
+The plugin continues to start the Bridge on demand in the selected article
+workspace.
