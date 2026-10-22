@@ -1,4 +1,7 @@
-import { GM_getValue, GM_setValue, GM_xmlhttpRequest } from '$'
+import { bridgeRequest, getValue, setValue, getRequestToken, initializePreferences } from './platform'
+
+declare const __DEV__: boolean
+declare const __VERSION__: string
 
 import { editorSessionChanged } from './editor-image-session'
 import { clampPanelPosition, type PanelPosition } from './panel-position'
@@ -136,15 +139,6 @@ type EditorCandidate = {
   score: number
 }
 
-type GmResponse<T = unknown> = {
-  status: number
-  statusText: string
-  response: T
-  responseText: string
-}
-
-declare const unsafeWindow: Window
-
 const ROOT_ID = 'ksw-standard-panel'
 const STYLE_ID = `${ROOT_ID}-style`
 const SERVICE_NAME = 'kintone-space-writer-bridge'
@@ -156,8 +150,8 @@ const PANEL_STATE_KEY = 'ksw-standard-panel-state'
 const ARCHIVE_KEY_PREFIX = 'ksw-archived-article:'
 const AUTO_REFRESH_INTERVAL_MS = 5_000
 const AUTO_DISCOVERY_INTERVAL_MS = 30_000
-const DEV_MODE = import.meta.env.DEV
-const DEV_LABEL = 'DEV 0.3.0'
+const DEV_MODE = __DEV__
+const DEV_LABEL = `DEV ${__VERSION__}`
 let showArchived = false
 
 let editor: HTMLElement | null = null
@@ -182,89 +176,30 @@ function isThreadPage() {
   return /\/space\/\d+\/thread\/\d+/i.test(location.href)
 }
 
-function clientId() {
-  const existing = GM_getValue<string>(CLIENT_KEY, '')
+async function clientId() {
+  const existing = getValue<string>(CLIENT_KEY, '')
   if (existing) return existing
   const created = typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `client-${Date.now()}-${Math.random()}`
-  GM_setValue(CLIENT_KEY, created)
+  await setValue(CLIENT_KEY, created)
   return created
 }
 
-function gmRequest<T>(options: {
-  method?: 'GET' | 'POST'
-  url: string
-  headers?: Record<string, string>
-  data?: string
-  responseType?: 'json' | 'blob'
-  timeout?: number
-}): Promise<GmResponse<T>> {
-  if (DEV_MODE) {
-    const parsed = new URL(options.url)
-    debugStage('HTTP→', `${options.method ?? 'GET'} ${parsed.pathname}`, { port: parsed.port })
-  }
-  return new Promise((resolve, reject) => {
-    let settled = false
-    let abortRequest: (() => void) | null = null
-    const timeout = options.timeout ?? 1500
-    const finish = (action: () => void) => {
-      if (settled) return
-      settled = true
-      window.clearTimeout(fallbackTimer)
-      action()
-    }
-    const fallbackTimer = window.setTimeout(
-      () => finish(() => {
-        abortRequest?.()
-        debugStage('HTTP×', `兜底超时 ${new URL(options.url).pathname}`)
-        reject(new Error('本地 Bridge 请求超时'))
-      }),
-      timeout + 500,
-    )
-    const control = GM_xmlhttpRequest({
-      method: options.method ?? 'GET',
-      url: options.url,
-      headers: options.headers,
-      data: options.data,
-      responseType: options.responseType ?? 'json',
-      timeout,
-      onload: (response) => finish(() => {
-        debugStage('HTTP←', `${response.status} ${new URL(options.url).pathname}`)
-        resolve(response as GmResponse<T>)
-      }),
-      onerror: () => finish(() => {
-        debugStage('HTTP×', `请求失败 ${new URL(options.url).pathname}`)
-        reject(new Error('本地 Bridge 请求失败'))
-      }),
-      ontimeout: () => finish(() => {
-        debugStage('HTTP×', `请求超时 ${new URL(options.url).pathname}`)
-        reject(new Error('本地 Bridge 请求超时'))
-      }),
-    })
-    abortRequest = () => (control as unknown as { abort?: () => void }).abort?.()
-  })
-}
-
-async function probePort(port: number, timeout = 900): Promise<BridgeConnection | null> {
+async function probePort(port: number): Promise<BridgeConnection | null> {
   try {
-    const response = await gmRequest<BridgeHealth>({
-      url: `http://127.0.0.1:${port}/health`,
-      timeout,
-    })
+    const response = await bridgeRequest<BridgeHealth>({ port, operation: 'health' })
     const health = response.response
-    if (response.status !== 200 || health?.service !== SERVICE_NAME || !health.token) return null
+    if (response.status !== 200 || health?.service !== SERVICE_NAME || !health.token || health.port !== port) return null
     return { port, token: health.token, instanceId: health.instanceId }
-  } catch {
-    return null
-  }
+  } catch { return null }
 }
 
 async function performDiscovery() {
-  const cached = GM_getValue<number[]>(PORTS_KEY, [])
+  const cached = getValue<number[]>(PORTS_KEY, [])
   const ports = [...new Set([...cached, ...Array.from({ length: PORT_END - PORT_START + 1 }, (_, index) => PORT_START + index)])]
   connections = (await Promise.all(ports.map((port) => probePort(port)))).filter(
     (value): value is BridgeConnection => Boolean(value),
   )
-  GM_setValue(PORTS_KEY, connections.map((connection) => connection.port))
+  await setValue(PORTS_KEY, connections.map((connection) => connection.port))
   renderConnection(connections.length)
   return connections
 }
@@ -286,49 +221,21 @@ function versionSnapshot(matches: VersionMatch[]) {
     .join('|')
 }
 
-function authorizedBridgeUrl(connection: BridgeConnection, value: string) {
-  const url = new URL(value, `http://127.0.0.1:${connection.port}`)
-  url.searchParams.set('bridgeToken', connection.token)
-  return url.href
-}
-
 async function listVersions(connection: BridgeConnection): Promise<BridgePackageSummary[]> {
-  const query = new URLSearchParams({ bridgeToken: connection.token })
-  const response = await gmRequest<{ packages?: BridgePackageSummary[]; error?: string }>({
-    url: `http://127.0.0.1:${connection.port}/v1/packages?${query}`,
-    timeout: 10000,
-  })
+  const response = await bridgeRequest<{ packages?: BridgePackageSummary[]; error?: string }>({ ...connection, operation: 'list' })
   if (response.status !== 200) throw new Error(response.response?.error || `读取版本列表失败：HTTP ${response.status}`)
   return response.response.packages ?? []
 }
 
 async function getPackage(connection: BridgeConnection, packageId: string): Promise<BridgePackage> {
-  const query = new URLSearchParams({ bridgeToken: connection.token })
-  const response = await gmRequest<BridgePackage | { error?: string }>({
-    url: `http://127.0.0.1:${connection.port}/v1/packages/${encodeURIComponent(packageId)}?${query}`,
-    timeout: 10000,
-  })
-  if (response.status !== 200) {
-    const error = 'error' in response.response ? response.response.error : undefined
-    throw new Error(error || `读取文章版本失败：HTTP ${response.status}`)
-  }
+  const response = await bridgeRequest<BridgePackage | { error?: string }>({ ...connection, operation: 'package', packageId })
+  if (response.status !== 200) throw new Error(('error' in response.response ? response.response.error : '') || `读取文章版本失败：HTTP ${response.status}`)
   return response.response as BridgePackage
 }
 
-async function postBridge(
-  connection: BridgeConnection,
-  path: string,
-  value: Record<string, unknown>,
-) {
-  const response = await gmRequest<{ status?: string; error?: string }>({
-    method: 'POST',
-    url: authorizedBridgeUrl(connection, path),
-    data: JSON.stringify(value),
-    timeout: 10000,
-  })
-  if (response.status < 200 || response.status >= 300) {
-    throw new Error(response.response?.error || `Bridge 写入失败：HTTP ${response.status}`)
-  }
+async function postBridge(connection: BridgeConnection, packageId: string, operation: 'claim' | 'result', body: Record<string, unknown>) {
+  const response = await bridgeRequest<{ status?: string; error?: string }>({ ...connection, operation, packageId, body })
+  if (response.status < 200 || response.status >= 300) throw new Error(response.response?.error || `Bridge 写入失败：HTTP ${response.status}`)
   return response.response
 }
 
@@ -502,12 +409,6 @@ function listItemMarkup(item: string | ListItem, mentions: Map<TextRun, MentionC
   return item.runs?.length ? item.runs.map((run) => inlineTextMarkup(run, mentions)).join('') : inlineTextMarkup(item)
 }
 
-function getRequestToken() {
-  type KintonePageWindow = Window & { kintone?: { getRequestToken?: () => string } }
-  const pageWindow = (typeof unsafeWindow !== 'undefined' ? unsafeWindow : window) as KintonePageWindow
-  return pageWindow.kintone?.getRequestToken?.() || document.querySelector<HTMLInputElement>('input[name="__REQUEST_TOKEN__"]')?.value || ''
-}
-
 function currentSpaceId() {
   const match = location.hash.match(/\/space\/(\d+)/i)
   if (!match) throw new Error('无法从当前页面识别 Space。')
@@ -554,7 +455,7 @@ async function searchMentionCandidates(request: MentionRequest, signal: AbortSig
 }
 
 async function pickMentionCandidate(candidate: MentionCandidate, signal: AbortSignal) {
-  const token = getRequestToken()
+  const token = await getRequestToken()
   if (!token) throw new Error('无法取得 kintone 请求令牌，不能确认提及对象。')
   const response = await fetch(`/k/api/user/pick.json?_ref=${encodeURIComponent(location.href)}`, {
     method: 'POST',
@@ -648,11 +549,7 @@ async function loadAsset(
   throwIfWriteCancelled(signal)
   const url = packageValue.assets[block.fileName]
   if (!url) throw new Error(`Bridge 没有提供图片：${block.fileName}`)
-  const response = await gmRequest<Blob>({
-    url: authorizedBridgeUrl(connection, url),
-    responseType: 'blob',
-    timeout: 30000,
-  })
+  const response = await bridgeRequest<Blob>({ ...connection, operation: 'asset', packageId: packageValue.id, assetName: block.fileName })
   if (response.status !== 200 || !(response.response instanceof Blob)) {
     throw new Error(`读取本地图片失败：${block.fileName}`)
   }
@@ -666,7 +563,7 @@ function throwIfWriteCancelled(signal: AbortSignal) {
 
 async function uploadImage(file: File, block: ImageBlock, signal: AbortSignal) {
   throwIfWriteCancelled(signal)
-  const token = getRequestToken()
+  const token = await getRequestToken()
   if (!token) throw new Error('无法取得 kintone 请求令牌。')
   const width = imageWidth(block)
   const query = new URLSearchParams({ checkThumbnail: 'true', w: String(width), _ref: location.href, name: file.name })
@@ -777,7 +674,7 @@ async function sendResult(
   status: 'injected' | 'failed',
   error = '',
 ) {
-  await postBridge(connection, `/v1/packages/${encodeURIComponent(packageValue.id)}/result`, {
+  await postBridge(connection, packageValue.id, 'result', {
     hash: packageValue.hash,
     status,
     error,
@@ -786,6 +683,7 @@ async function sendResult(
 }
 
 async function applyPackage(connection: BridgeConnection, packageValue: BridgePackage, signal: AbortSignal) {
+  const destination = location.href
   const target = await resolveEditor()
   if (!target || !target.isContentEditable) {
     renderMessage('请先点击页面里的“发表评论…”展开评论框，再点击该版本。', 'warning')
@@ -796,14 +694,14 @@ async function applyPackage(connection: BridgeConnection, packageValue: BridgePa
     reusableImagePackageIds.clear()
     imageCacheEditor = target
   }
-  await postBridge(connection, `/v1/packages/${encodeURIComponent(packageValue.id)}/claim`, {
+  await postBridge(connection, packageValue.id, 'claim', {
     hash: packageValue.hash,
-    clientId: clientId(),
+    clientId: await clientId(),
   })
   try {
     const rendered = await buildMarkup(connection, packageValue, signal)
     throwIfWriteCancelled(signal)
-    if (!target.isConnected) throw new Error('图片上传期间编辑器已被页面替换。')
+    if (!target.isConnected || location.href !== destination) throw new Error('写入期间话题或编辑器已改变，请重新选择版本。')
     target.focus()
     document.execCommand('selectAll', false)
     if (!document.execCommand('insertHTML', false, rendered.markup)) throw new Error('浏览器拒绝写入富文本编辑器。')
@@ -883,7 +781,7 @@ function renderVersions() {
   const previousScrollTop = element.scrollTop
   element.replaceChildren()
   const allGroups = articleVersionGroups()
-  const archived = (id: string) => GM_getValue<boolean>(ARCHIVE_KEY_PREFIX + id, false) === true
+  const archived = (id: string) => getValue<boolean>(ARCHIVE_KEY_PREFIX + id, false) === true
   const archivedCount = allGroups.filter(group => archived(group.articleId)).length
   for (const [view, count] of [['active', allGroups.length - archivedCount], ['archive', archivedCount]] as const) {
     const tab = document.querySelector<HTMLButtonElement>(`#${ROOT_ID}-${view}`)
@@ -966,8 +864,10 @@ function renderVersions() {
     archiveButton.title = showArchived ? '恢复到正在编辑列表' : '收起整篇文章及其所有版本'
     archiveButton.disabled = Boolean(writeAbortController)
     archiveButton.addEventListener('click', () => {
-      GM_setValue(ARCHIVE_KEY_PREFIX + group.articleId, !showArchived)
-      renderVersions()
+      archiveButton.disabled = true
+      void setValue(ARCHIVE_KEY_PREFIX + group.articleId, !showArchived)
+        .then(() => renderVersions())
+        .catch(error => { archiveButton.disabled = false; renderMessage(`保存归档设置失败：${String(error)}`, 'error') })
     })
     const heading = document.createElement('div')
     heading.className = 'article-heading'
@@ -1052,7 +952,7 @@ async function applyVersion(match: VersionMatch) {
 }
 
 function panelState(): PanelState | null {
-  const value = GM_getValue<PanelState | null>(PANEL_STATE_KEY, null)
+  const value = getValue<PanelState | null>(PANEL_STATE_KEY, null)
   return value && Number.isFinite(value.left) && Number.isFinite(value.top) ? value : null
 }
 
@@ -1065,7 +965,7 @@ function clampAndSavePanelPosition(root: HTMLElement, collapsed = root.dataset.c
   root.style.left = `${position.left}px`
   root.style.right = 'auto'
   root.style.top = `${position.top}px`
-  GM_setValue(PANEL_STATE_KEY, { ...position, collapsed })
+  void setValue(PANEL_STATE_KEY, { ...position, collapsed }).catch(error => renderMessage(`保存小窗位置失败：${String(error)}`, 'error'))
 }
 
 function setPanelCollapsed(root: HTMLElement, collapsed: boolean) {
@@ -1171,6 +1071,9 @@ function injectStyles() {
     #${ROOT_ID}-connection[data-online="true"] { color:#13795b; background:#e6f5ee; }
     #${ROOT_ID}-collapse, #${ROOT_ID}-refresh { background:#fff; border:1px solid #e2e8f0; color:#64748b; border-radius:9px; width:28px; height:28px; flex-shrink:0; }
     #${ROOT_ID}-collapse:hover, #${ROOT_ID}-refresh:hover { background:#eef2ff; border-color:#c7d2fe; color:#3159bf; }
+    #${ROOT_ID}-settings { background:transparent; border:0; color:#64748b; border-radius:7px; padding:4px; font-size:11px; }
+    #${ROOT_ID}-settings:hover { background:#eef2ff; color:#3159bf; }
+    #${ROOT_ID}[data-collapsed="true"] #${ROOT_ID}-settings { display:none; }
     #${ROOT_ID} .panel-tabs { display:flex; gap:4px; padding:4px; background:#eaf0f6; border-radius:10px; }
     #${ROOT_ID} .panel-tabs button { flex:1; border:0; background:transparent; color:#64748b; padding:7px 8px; border-radius:7px; font-size:12px; }
     #${ROOT_ID} .panel-tabs button[aria-pressed="true"] { color:#2449a6; background:#fff; box-shadow:0 1px 3px #172b4d12; font-weight:700; }
@@ -1220,6 +1123,7 @@ function createPanel() {
     <div id="${ROOT_ID}-header">
       <span id="${ROOT_ID}-title">Space Writer${DEV_MODE ? ` <small>${DEV_LABEL}</small>` : ''}</span>
       <div id="${ROOT_ID}-connection" data-online="false">Bridge 离线</div>
+      <button id="${ROOT_ID}-settings" type="button" title="扩展设置与旧设置迁移" aria-label="扩展设置">设置</button>
       <button id="${ROOT_ID}-refresh" type="button" title="刷新版本" aria-label="刷新版本">↻</button>
       <button id="${ROOT_ID}-collapse" type="button" title="最小化面板">—</button>
     </div>
@@ -1237,6 +1141,7 @@ function createPanel() {
   const refresh = root.querySelector<HTMLButtonElement>(`#${ROOT_ID}-refresh`)
   const collapse = root.querySelector<HTMLButtonElement>(`#${ROOT_ID}-collapse`)
   const cancel = root.querySelector<HTMLButtonElement>(`#${ROOT_ID}-cancel`)
+  root.querySelector(`#${ROOT_ID}-settings`)?.addEventListener('click', () => { void chrome.runtime.sendMessage({ channel: 'ksw-extension.v1', kind: 'options' }) })
   refresh?.addEventListener('click', () => void refreshVersions())
   for (const view of ['active', 'archive']) {
     root.querySelector(`#${ROOT_ID}-${view}`)?.addEventListener('click', () => {
@@ -1272,20 +1177,25 @@ function maintainPage() {
   }
 }
 
-const observer = new MutationObserver(() => {
+function startCompanion() {
+  const observer = new MutationObserver(() => {
+    maintainPage()
+    if (imageCacheEditor && !imageCacheEditor.isConnected) {
+      imageCacheEditor = null
+      imageFileKeys.clear()
+      reusableImagePackageIds.clear()
+      renderVersions()
+    }
+  })
+  observer.observe(document.documentElement, { childList: true, subtree: true })
+  window.addEventListener('hashchange', maintainPage)
+  window.addEventListener('popstate', maintainPage)
+  window.addEventListener('resize', () => {
+    const root = document.querySelector<HTMLElement>(`#${ROOT_ID}`)
+    if (root) clampAndSavePanelPosition(root)
+  })
   maintainPage()
-  if (imageCacheEditor && !imageCacheEditor.isConnected) {
-    imageCacheEditor = null
-    imageFileKeys.clear()
-    reusableImagePackageIds.clear()
-    renderVersions()
-  }
-})
-observer.observe(document.documentElement, { childList: true, subtree: true })
-window.addEventListener('hashchange', maintainPage)
-window.addEventListener('popstate', maintainPage)
-window.addEventListener('resize', () => {
-  const root = document.querySelector<HTMLElement>(`#${ROOT_ID}`)
-  if (root) clampAndSavePanelPosition(root)
-})
-maintainPage()
+
+  window.addEventListener('ksw-preferences-changed', () => renderVersions())
+}
+void initializePreferences().then(startCompanion).catch(error => { console.error('Space Writer 初始化失败', error) })

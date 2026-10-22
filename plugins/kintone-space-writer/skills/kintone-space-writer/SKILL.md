@@ -66,10 +66,10 @@ The publishing route is an existing kintone Space thread comment only.
 
 - Do not update thread body content.
 - Do not create a thread unless the user explicitly asks and required Space capability is confirmed.
-- The standard browser route uses target IDs from workspace
-  `kintone-targets.yaml`; it does not require API credentials.
+- The standard browser route uses the Space thread opened by the user; it
+  does not require destination YAML or API credentials. Target YAML is for the REST fallback.
 - The standard route supports inline images because the locally installed
-  companion userscript fills
+  companion Chrome extension fills
   the authenticated Web editor. It never clicks Publish.
 - Keep `.env` username/password settings only for the REST fallback.
 - In the REST fallback, images remain trailing attachments and text is plain.

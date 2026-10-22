@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Space Writer 设置</title>
+<link rel="stylesheet" href="options.css">
+<main>
+  <h1>Space Writer</h1>
+  <p>打开已登录的 kintone Space 话题页，选择小窗中的文章版本，写入后检查并发布。</p>
+  <section>
+    <h2>文章与小窗设置</h2>
+    <p id="count"></p>
+    <p>导入会合并归档状态和小窗设置，同名条目使用导入的值。文章文件、图片和 Bridge 队列仍保存在本地文章库中。</p>
+    <label class="button">导入设置 JSON<input id="import" type="file" accept=".json,application/json"></label>
+    <button id="export" type="button">导出当前设置</button>
+    <p id="status" role="status" aria-live="polite"></p>
+  </section>
+  <section>
+    <h2>从 Tampermonkey 迁移</h2>
+    <ol>
+      <li>在原浏览器配置中安装 ZIP 内 migration 文件夹的 <code>export-settings.user.js</code>。它会替换旧 Space Writer 脚本，并保留原脚本的设置。</li>
+      <li>刷新 kintone 话题页，点击“导出旧版设置”，保存 JSON。</li>
+      <li>停用 Tampermonkey 中的 Space Writer 导出脚本，在本页导入 JSON，再刷新 kintone 页面。</li>
+    </ol>
+    <p>如需回退，可从 ZIP 中的旧版脚本恢复。旧版只用于回退，正常使用扩展时请保持停用。</p>
+  </section>
+  <section><h2>安装与更新</h2><p>保持解压目录固定。更新时用新版文件替换该目录，然后在浏览器扩展管理页点击“重新加载”，再刷新 kintone 页面。保留扩展安装即可保留设置。</p></section>
+  <small id="identity"></small>
+</main>
+<script src="options.js"></script>
+</html>

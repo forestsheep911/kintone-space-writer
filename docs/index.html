@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>安装 kintone Space Writer 脚本</title>
+    <title>kintone Space Writer 浏览器配套</title>
     <style>
       body { box-sizing: border-box; max-width: 720px; margin: 10vh auto; padding: 0 24px; color: #202a38; font: 16px/1.7 system-ui, sans-serif; }
       h1 { font-size: 2rem; line-height: 1.25; }
@@ -13,9 +13,12 @@
     </style>
   </head>
   <body>
-    <h1>kintone Space Writer 浏览器脚本</h1>
-    <p>在已安装 Tampermonkey 的浏览器中，点击下方按钮安装脚本。首次安装或从本地文件迁移时，确认 Tampermonkey 的安装或更新提示。</p>
-    <p><a class="install" href="./kintone-space-writer.user.js">安装或更新脚本</a></p>
+    <h1>kintone Space Writer</h1>
+    <p>主线已转向独立 Chrome 扩展。扩展使用 ZIP 解压加载方式，保留本地 Bridge、文章版本选择和图文写入，最后由你检查并发布。</p>
+    <p><a class="install" href="https://github.com/forestsheep911/kintone-space-writer/blob/main/extension/README.md">查看 Chrome 扩展安装与迁移说明</a></p>
+    <h2>旧版 Tampermonkey 脚本</h2>
+    <p>下面保留 0.3.0 旧版作为回退入口。正常使用扩展时请停用旧脚本，避免出现重复小窗。旧归档状态可通过扩展 ZIP 中的一次性导出工具迁移。</p>
+    <p><a href="./kintone-space-writer.user.js">安装旧版脚本（回退用）</a></p>
     <p>安装后，打开 kintone Space 话题页。脚本会连接本机运行的 Space Writer Bridge，读取已准备好的文章版本。脚本更新由 Tampermonkey 按设置检查；文章仍需在页面中由你确认并发布。</p>
     <p>如果浏览器显示脚本源码，请复制此直链到 Tampermonkey 的“实用工具 → 从 URL 安装”：<br><code>https://forestsheep911.github.io/kintone-space-writer/kintone-space-writer.user.js</code></p>
   </body>

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Local bridge between article workspaces and the kintone userscript.
+"""Local bridge between article workspaces and the kintone browser companion.
 
 The bridge binds only to 127.0.0.1. It exposes Ready article packages to the
-locally installed companion userscript, but never publishes a kintone comment
+locally installed companion extension, but never publishes a kintone comment
 itself.
 """
 
@@ -855,7 +855,7 @@ def build_parser() -> argparse.ArgumentParser:
         )
     )
 
-    ready = subparsers.add_parser("mark-ready", help="Validate an article and expose it to the userscript")
+    ready = subparsers.add_parser("mark-ready", help="Validate an article and expose it to the browser companion")
     add_bridge_options(ready)
     ready.add_argument("--article", type=Path, required=True)
     ready.add_argument("--assets-root", type=Path, default=Path("assets"))

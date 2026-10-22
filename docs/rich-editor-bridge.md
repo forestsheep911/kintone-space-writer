@@ -14,7 +14,7 @@ article workspace
 127.0.0.1:8787..8807
        | user opens `发表评论…` in the intended thread
        v
-local companion userscript -> kintone rich editor -> user review -> user clicks Publish
+local companion Chrome extension -> kintone rich editor -> user review -> user clicks Publish
 ```
 
 The Bridge is not a Windows startup service. A plugin operation starts it
@@ -92,7 +92,7 @@ three manually inserted images in one row were direct sibling `img` elements.
 An item represented as an attachment link instead of `img.cybozu-tmp-file`
 showed its filename rather than an inline preview; treat that as an upload/type
 classification issue, not an image-row layout form. This persisted DOM shape
-alone does not prove an automated insertion path is accepted; the userscript
+alone does not prove an automated insertion path is accepted; the extension
 must verify the expected number of image nodes after writing and report failure
 when kintone sanitizes them away.
 
@@ -150,7 +150,7 @@ directory at write time; it is not treated as an identity by itself.
 `entityType` is optional and may be `USER`, `GROUP`, or `ORGANIZATION`. A
 single exact code/name match is selected automatically. Otherwise the panel
 shows the current Space's candidates and requires the user to choose one. The
-userscript then calls kintone's native selection route before inserting the
+extension then calls kintone's native selection route before inserting the
 editor-native mention node; plain `@name` text is never presented as a real
 mention.
 
@@ -158,41 +158,37 @@ kintone requires one real user gesture before it creates the rich comment
 editor. If the page still shows the collapsed `发表评论…` entry, click it once,
 then explicitly click the desired version in the panel.
 
-The userscript reuses an uploaded image only while that same native editor is
+The extension reuses an uploaded image only while that same native editor is
 open, and only when both the local asset digest and rendered width are unchanged.
 Changing the image or width, closing/canceling the editor, or reloading the page
 uploads it again.
 
-## Local companion userscript
+## Local companion Chrome extension
 
-Build:
+Build and package:
 
 ```powershell
-cd userscript/kintone-space-writer
+cd extension
 pnpm install
-pnpm build
+pnpm check
+pnpm package
 ```
 
-Install the published build from the stable address:
+Extract the ZIP from `dist/`, enable developer mode on `chrome://extensions`,
+and load the directory containing `manifest.json`. Disable the old Tampermonkey
+Space Writer script and refresh kintone. See [installation and settings
+migration](../extension/README.md). Updates replace the fixed extracted folder
+and require reloading the extension; they do not use Tampermonkey update URLs.
 
-```text
-https://forestsheep911.github.io/kintone-space-writer/kintone-space-writer.user.js
-```
+The extension covers normal and SecureAccess hosts for `cybozu.com`,
+`cybozu.cn`, `kintone.com`, and `cybozu-dev.com`. Its background performs only
+fixed authenticated Bridge operations at `127.0.0.1:8787–8807`. Page scripts
+retain same-origin image uploads and native editor insertion; a fixed MAIN
+world function obtains the kintone request token for the requesting document.
 
-The install page is `https://forestsheep911.github.io/kintone-space-writer/`.
-The same generated file is retained at
-`plugins/kintone-space-writer/assets/userscript/kintone-space-writer.user.js`.
-Increase the userscript package version for each release so Tampermonkey can
-detect updates through the script's `@updateURL` and `@downloadURL`.
-
-The companion metadata covers normal and SecureAccess-style hosts for
-`cybozu.com`, `cybozu.cn`, `kintone.com`, and `cybozu-dev.com`.
-
-This is a Tampermonkey installation, not a Store release. `pnpm dev` is
-for selector debugging; install the `pnpm build` artifact for normal testing.
-The plugin starts the Bridge on demand. While its version panel is open, the
-companion discovers the active Bridge in the fixed loopback range and verifies
-its health token automatically; no port entry is required.
+The plugin starts the Bridge on demand. While the version panel is open,
+the extension discovers its port and verifies the health token automatically.
+The article schema and Python Bridge remain compatible with legacy clients.
 
 ## Safety and compatibility
 

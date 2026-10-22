@@ -17,10 +17,16 @@ and trailing attachments.
 
 ## Standard Rich-Article Flow
 
-The locally installed companion userscript consumes `kintone-rich-article.v1`
+The locally installed companion Chrome extension consumes `kintone-rich-article.v1`
 JSON from the local Bridge. Resolve `../../scripts/kintone_article_bridge.py`
 from this skill's directory; do not assume the plugin source is inside the
 article workspace.
+
+Use the installed Chrome companion extension for the browser handoff. Its ZIP
+includes installation instructions and a one-time Tampermonkey settings export
+tool. Normal use does not require Tampermonkey or a Vite development server.
+Keep the Python Bridge workflow below; do not publish merely because the
+extension reports that an article was injected into the editor.
 
 Before marking a draft Ready:
 

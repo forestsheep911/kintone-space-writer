@@ -86,19 +86,17 @@ These target fields are used only by the REST fallback. The rich browser route
 does not need an origin, Space ID, Thread ID, or target alias: the user selects
 the intended thread directly in kintone.
 
-## 5. Install The Local Companion Userscript
+## 5. Install The Chrome Companion Extension
 
-Install this file in Tampermonkey:
+Extract the extension ZIP into a fixed directory. In `chrome://extensions`
+(or `edge://extensions`), enable developer mode and load the extracted directory
+containing `manifest.json`. Disable the old Tampermonkey Space Writer script,
+then refresh the kintone thread page.
 
-```text
-plugins/kintone-space-writer/assets/userscript/kintone-space-writer.user.js
-```
-
-The panel appears only on matching Space thread pages.
-
-The artifact is installed locally in Tampermonkey; it is not fetched from a
-Store. The plugin starts the Bridge when an article is marked Ready, and the
-companion finds the active loopback port automatically.
+See [the extension guide](../extension/README.md) for settings migration, manual
+updates, and rollback. The panel appears only on matching Space thread pages.
+The plugin starts the Bridge when an article is marked Ready; the extension
+finds the active loopback port automatically.
 
 ## 6. Draft The Rich Article
 

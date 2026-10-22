@@ -2,10 +2,10 @@
 
 ## Publishing Model
 
-V0.2 has two routes for comments on an existing kintone Space thread:
+The project has two routes for comments on an existing kintone Space thread:
 
 1. Standard: an on-demand loopback Bridge hands an ordered rich article to a
-   locally installed companion userscript, which fills the native Web editor.
+   locally installed companion Chrome extension, which fills the native Web editor.
    The user publishes.
 2. Fallback: the public REST API posts plain text plus trailing attachments.
 
@@ -17,7 +17,7 @@ The Bridge binds to `127.0.0.1` and selects the first free port from 8787–8807
 Plugin calls start it idempotently; it is not registered as a Windows service
 and exits after an idle timeout. Its workspace-local queue is ignored by Git.
 
-Every package is local to its article workspace. The userscript must claim it
+Every package is local to its article workspace. The extension must claim it
 before uploading images, writes only after the user has opened a native comment
 editor and selected a version, records injected/failed results, and never
 activates Publish. Rich images use
@@ -27,8 +27,9 @@ fallback remains important if kintone changes that behavior.
 The companion is built locally with the plugin, rather than released through a
 public Store. The plugin starts the Bridge on demand; the companion probes only
 the bounded loopback range and verifies `/health` plus its token. Users never
-need to select or configure a port. A Vite development server is only used for
-selector debugging, not for normal handoff.
+need to select or configure a port. Extension development builds static files
+and reloads them from the browser's extension management page; no Vite server
+is required. Installation and migration are described in `extension/README.md`.
 
 ## REST Fallback API Shape
 
