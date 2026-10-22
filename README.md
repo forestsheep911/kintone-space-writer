@@ -11,7 +11,7 @@ As of 2026-10-22, `main` is the development line for a standalone Chrome
 Manifest V3 companion extension. The complete committed Tampermonkey baseline
 is preserved on `codex/archive/tampermonkey-20261022` at commit `0a370f1`.
 
-The Chrome companion is now implemented as version `0.4.1` in [`extension/`](extension/README.md).
+The Chrome companion is now implemented as version `0.4.2` in [`extension/`](extension/README.md).
 It retains the local Bridge and the existing editor workflow. See the
 [extension migration record](docs/chrome-extension-migration.md) for the branch
 policy, compatibility details, and validation boundaries.

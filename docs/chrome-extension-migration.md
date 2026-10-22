@@ -105,3 +105,25 @@ validate operating-system file dragging. An attempted CDP drag did not populate
 native drop data (`No current drop data`), so it is not treated as a failure of
 ZIP installation or as successful drag-install acceptance. Target-browser ZIP
 upgrade and settings retention remain separate live checks.
+
+## Panel refresh (0.4.2)
+
+The article list uses lighter separators, a consistent version/description/write
+layout, and a separate archive row so long titles retain their width. Only one
+article opens initially, preferring the last selected article, and historical
+versions can be expanded on demand. Dates show package creation time rather
+than write-triggered updates. Image reuse appears as a neutral cache hint. A
+page-session receipt shows the last successful insertion and detects subsequent
+editor changes; it is cleared after refresh or a thread/editor change.
+
+The compact state is now a labeled 224px bar with a six-dot grip, a visible drag
+hint, and a separate expand button. Both the expanded header and the compact
+label area accept dragging. Position and collapse state remain in the existing
+storage key. Expanding near an edge brings the complete panel into view.
+
+Validation for this version is recorded in
+`validation-20261022-extension-v0.4.2.json`. Regression screenshots were inspected
+in an isolated Chromium profile. The installed Edge extension still requires a
+manual reload and real-page visual acceptance: browser automation rejects
+`edge://extensions/`, so no alternate reload route was attempted. The user's
+earlier successful article insertion belongs to the prior UI version.

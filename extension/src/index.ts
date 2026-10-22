@@ -6,6 +6,7 @@ declare const __VERSION__: string
 import { editorSessionChanged } from './editor-image-session'
 import { clampPanelPosition, type PanelPosition } from './panel-position'
 import { imageCacheKey, newestVersionsFirst, type VersionSummary } from './version-picker'
+import { panelStyles } from './panel-styles'
 
 type MentionEntityType = 'USER' | 'GROUP' | 'ORGANIZATION'
 
@@ -148,6 +149,7 @@ const CLIENT_KEY = 'ksw-standard-client-id'
 const PORTS_KEY = 'ksw-standard-bridge-ports'
 const PANEL_STATE_KEY = 'ksw-standard-panel-state'
 const ARCHIVE_KEY_PREFIX = 'ksw-archived-article:'
+const LAST_ARTICLE_KEY = 'ksw-last-opened-article'
 const AUTO_REFRESH_INTERVAL_MS = 5_000
 const AUTO_DISCOVERY_INTERVAL_MS = 30_000
 const DEV_MODE = __DEV__
@@ -165,6 +167,9 @@ let imageFileKeys = new Map<string, string>()
 let imageCacheEditor: HTMLElement | null = null
 let reusableImagePackageIds = new Set<string>()
 let expandedArticleIds = new Set<string>()
+let expandedHistoryIds = new Set<string>()
+let initialArticlePicked = false
+let lastWrite: { editor: HTMLElement; pageUrl: string; title: string; version: string; imageCount: number; markup: string; modified: boolean } | null = null
 let writeAbortController: AbortController | null = null
 let mentionSelection: { resolve: (candidate: MentionCandidate) => void; reject: (error: Error) => void } | null = null
 
@@ -715,6 +720,8 @@ async function applyPackage(connection: BridgeConnection, packageValue: BridgePa
         throw new Error(`kintone 编辑器没有保留全部图片（预期 ${expectedImages.length} 张，实际 ${actualImages} 张）。`)
       }
     }
+    lastWrite = { editor: target, pageUrl: destination, title: packageValue.article.title || packageValue.article.id || '未命名文章', version: packageValue.version, imageCount: rendered.imageCount, markup: target.innerHTML, modified: false }
+    renderReceipt()
     await sendResult(connection, packageValue, 'injected')
     if (rendered.imageCount) reusableImagePackageIds.add(packageValue.id)
     renderVersions()
@@ -734,7 +741,38 @@ function renderConnection(count: number) {
   const element = document.querySelector<HTMLElement>(`#${ROOT_ID}-connection`)
   if (!element) return
   element.dataset.online = count > 0 ? 'true' : 'false'
-  element.textContent = count > 0 ? `Bridge 已连接${count > 1 ? `（${count}）` : ''}` : 'Bridge 离线'
+  element.textContent = count > 0 ? `已连接${count > 1 ? `（${count}）` : ''}` : '未连接'
+  element.title = count > 0 ? '本地文章服务已连接' : '本地文章服务未连接，请先准备文章'
+}
+
+function renderReceipt() {
+  const element = document.querySelector<HTMLElement>(`#${ROOT_ID}-receipt`)
+  if (!element) return
+  element.hidden = !lastWrite
+  if (!lastWrite) { element.replaceChildren(); return }
+  element.dataset.modified = String(lastWrite.modified)
+  const heading = document.createElement('strong')
+  heading.className = 'receipt-heading'
+  heading.textContent = `最近写入：${lastWrite.version}`
+  const title = document.createElement('span')
+  title.className = 'receipt-title'
+  title.textContent = lastWrite.title
+  title.title = lastWrite.title
+  const detail = document.createElement('span')
+  detail.className = 'receipt-detail'
+  detail.textContent = lastWrite.modified ? '编辑器已修改，请以页面中的内容为准' : `已写入编辑器${lastWrite.imageCount ? ` · ${lastWrite.imageCount} 张图片` : ' · 文字版'}`
+  element.replaceChildren(heading, title, detail)
+}
+
+function syncReceipt() {
+  if (!lastWrite || writeAbortController) return
+  if (!lastWrite.editor.isConnected || lastWrite.pageUrl !== location.href) {
+    lastWrite = null
+    renderReceipt()
+    return
+  }
+  const modified = lastWrite.editor.innerHTML !== lastWrite.markup
+  if (modified !== lastWrite.modified) { lastWrite.modified = modified; renderReceipt() }
 }
 
 function renderMessage(message: string, kind: 'normal' | 'working' | 'success' | 'warning' | 'error' = 'normal') {
@@ -783,10 +821,17 @@ function renderVersions() {
   const allGroups = articleVersionGroups()
   const archived = (id: string) => getValue<boolean>(ARCHIVE_KEY_PREFIX + id, false) === true
   const archivedCount = allGroups.filter(group => archived(group.articleId)).length
+  if (!initialArticlePicked && allGroups.length) {
+    const available = allGroups.filter(group => !archived(group.articleId))
+    const remembered = available.find(group => group.articleId === getValue<string>(LAST_ARTICLE_KEY, ''))
+    const initial = remembered || available[0]
+    if (initial) expandedArticleIds.add(initial.articleId)
+    initialArticlePicked = true
+  }
   for (const [view, count] of [['active', allGroups.length - archivedCount], ['archive', archivedCount]] as const) {
     const tab = document.querySelector<HTMLButtonElement>(`#${ROOT_ID}-${view}`)
     if (tab) {
-      tab.textContent = `${view === 'active' ? '正在编辑' : '已归档'} · ${count}`
+      tab.textContent = `${view === 'active' ? '文章' : '归档'} · ${count}`
       tab.setAttribute('aria-pressed', String((view === 'archive') === showArchived))
     }
   }
@@ -794,7 +839,7 @@ function renderVersions() {
   if (!groups.length) {
     const empty = document.createElement('p')
     empty.className = 'empty'
-    empty.textContent = showArchived ? '暂无归档文章' : allGroups.length ? '文章都已归档，可在“已归档”中恢复。' : '准备好的文章将在这里显示。'
+    empty.textContent = showArchived ? '暂无归档文章' : allGroups.length ? '文章都已归档，可在“归档”中恢复。' : '准备好的文章将在这里显示。'
     element.append(empty)
   }
   const activeEditor = findEditorCandidates()[0]?.element ?? null
@@ -813,55 +858,82 @@ function renderVersions() {
     const title = document.createElement('strong')
     title.className = 'article-group-title'
     title.textContent = group.title
-    const count = document.createElement('span')
-    count.className = 'article-group-count'
-    count.textContent = `${group.versions.length} 个版本`
-    toggle.append(chevron, title, count)
+    toggle.append(chevron, title)
     toggle.addEventListener('click', () => {
       if (showArchived) return
       if (expandedArticleIds.has(group.articleId)) expandedArticleIds.delete(group.articleId)
-      else expandedArticleIds.add(group.articleId)
+      else {
+        expandedArticleIds.add(group.articleId)
+        void setValue(LAST_ARTICLE_KEY, group.articleId).catch(error => renderMessage(`保存文章选择失败：${String(error)}`, 'error'))
+      }
       renderVersions()
     })
+    const count = document.createElement('span')
+    count.className = 'article-group-count'
+    count.textContent = `${group.versions.length} 个版本`
     const versions = document.createElement('div')
     versions.className = 'article-version-list'
-    for (const selected of group.versions) {
+    const historyExpanded = expandedHistoryIds.has(group.articleId)
+    const shownVersions = historyExpanded ? group.versions : group.versions.slice(0, 1)
+    for (const selected of shownVersions) {
       const match = selected.summary
       const row = document.createElement('div')
       row.className = 'version-row'
+      row.dataset.latest = String(selected === group.versions[0])
       const canReuseImages = imageCacheEditor === activeEditor && reusableImagePackageIds.has(match.id)
       row.dataset.reusable = String(canReuseImages)
       const version = document.createElement('span')
       version.className = 'version-tag'
       version.textContent = match.version
+      version.title = `${match.version}${selected === group.versions[0] ? ' · 最新版本' : ''}`
       const note = document.createElement('span')
       note.className = 'version-note'
       note.textContent = versionNote(match)
-      const meta = document.createElement('small')
+      const meta = document.createElement('time')
       meta.className = 'version-meta'
-      const updated = new Date(match.updatedAt)
-      const time = Number.isNaN(updated.getTime()) ? match.updatedAt : updated.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
-      meta.textContent = `${time}${canReuseImages ? ' · 图片可复用' : ''}`
-      meta.title = match.updatedAt
+      const created = new Date(match.createdAt)
+      const time = Number.isNaN(created.getTime()) ? '时间未知' : created.toLocaleString('zh-CN', { ...(created.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' as const } : {}), month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
+      if (!Number.isNaN(created.getTime())) meta.dateTime = match.createdAt
+      meta.textContent = `创建于 ${time}`
+      meta.title = Number.isNaN(created.getTime()) ? '版本创建时间未知' : `版本创建时间：${created.toLocaleString('zh-CN')}`
       const button = document.createElement('button')
       button.className = 'version-apply'
       button.type = 'button'
       button.textContent = '写入'
-      button.title = canReuseImages ? '写入当前编辑器；图片可直接复用' : '写入当前编辑器'
+      button.title = canReuseImages ? '将此版本写入当前编辑器；图片无需重新上传' : '将此版本写入当前编辑器'
       button.disabled = busy
       button.addEventListener('click', () => void applyVersion(selected))
       const detail = document.createElement('div')
       detail.className = 'version-detail'
-      detail.append(note, version, meta)
-      row.append(detail, button)
+      detail.append(note, meta)
+      if (canReuseImages) {
+        const cache = document.createElement('small')
+        cache.className = 'version-cache'
+        cache.textContent = '图片无需重传'
+        detail.append(cache)
+      }
+      row.append(version, detail, button)
       versions.append(row)
+    }
+    if (group.versions.length > 1) {
+      const history = document.createElement('button')
+      history.type = 'button'
+      history.className = 'version-history'
+      history.setAttribute('aria-expanded', String(historyExpanded))
+      history.textContent = historyExpanded ? '收起历史版本' : `查看其余 ${group.versions.length - 1} 个版本`
+      history.addEventListener('click', () => {
+        if (historyExpanded) expandedHistoryIds.delete(group.articleId)
+        else expandedHistoryIds.add(group.articleId)
+        renderVersions()
+      })
+      versions.append(history)
     }
     const archiveButton = document.createElement('button')
     archiveButton.type = 'button'
     archiveButton.className = 'article-archive'
     archiveButton.textContent = showArchived ? '恢复' : '归档'
     archiveButton.setAttribute('aria-label', `${showArchived ? '恢复' : '归档'}文章：${group.title}`)
-    archiveButton.title = showArchived ? '恢复到正在编辑列表' : '收起整篇文章及其所有版本'
+    archiveButton.title = showArchived ? '恢复到文章列表' : '收起整篇文章及其所有版本'
     archiveButton.disabled = Boolean(writeAbortController)
     archiveButton.addEventListener('click', () => {
       archiveButton.disabled = true
@@ -871,14 +943,16 @@ function renderVersions() {
     })
     const heading = document.createElement('div')
     heading.className = 'article-heading'
-    heading.append(toggle, archiveButton)
-    if (showArchived) {
-      toggle.disabled = true
-      article.append(heading)
-    } else article.append(heading, versions)
+    const summary = document.createElement('div')
+    summary.className = 'article-summary'
+    summary.append(count, archiveButton)
+    heading.append(toggle, summary)
+    if (showArchived) { toggle.disabled = true; article.append(heading) }
+    else article.append(heading, versions)
     element.append(article)
   }
   element.scrollTop = previousScrollTop
+  renderReceipt()
 }
 
 async function refreshVersions(options: { automatic?: boolean; forceDiscovery?: boolean } = {}) {
@@ -937,6 +1011,7 @@ async function applyVersion(match: VersionMatch) {
   renderWriteControls()
   renderMessage(`正在写入 ${match.summary.version}…`, 'working')
   try {
+    await setValue(LAST_ARTICLE_KEY, match.summary.articleId || match.summary.id)
     const packageValue = await getPackage(match.connection, match.summary.id)
     throwIfWriteCancelled(writeAbortController.signal)
     await applyPackage(match.connection, packageValue, writeAbortController.signal)
@@ -946,6 +1021,7 @@ async function applyVersion(match: VersionMatch) {
   } finally {
     busy = false
     writeAbortController = null
+    syncReceipt()
     renderVersions()
     renderWriteControls()
   }
@@ -956,12 +1032,22 @@ function panelState(): PanelState | null {
   return value && Number.isFinite(value.left) && Number.isFinite(value.top) ? value : null
 }
 
-function clampAndSavePanelPosition(root: HTMLElement, collapsed = root.dataset.collapsed === 'true') {
+function visiblePanelPosition(root: HTMLElement, requested: PanelPosition) {
   const position = clampPanelPosition(
-    { left: root.offsetLeft, top: root.offsetTop },
+    requested,
     { width: window.innerWidth, height: window.innerHeight },
     { width: root.offsetWidth, height: root.offsetHeight },
   )
+  // Keep the compact bar's drag handle reachable, including after a long drag.
+  if (root.dataset.collapsed === 'true') {
+    position.left = Math.max(12, Math.min(position.left, window.innerWidth - root.offsetWidth - 12))
+    position.top = Math.max(12, Math.min(position.top, window.innerHeight - root.offsetHeight - 12))
+  }
+  return position
+}
+
+function clampAndSavePanelPosition(root: HTMLElement, collapsed = root.dataset.collapsed === 'true') {
+  const position = visiblePanelPosition(root, { left: root.offsetLeft, top: root.offsetTop })
   root.style.left = `${position.left}px`
   root.style.right = 'auto'
   root.style.top = `${position.top}px`
@@ -972,8 +1058,15 @@ function setPanelCollapsed(root: HTMLElement, collapsed: boolean) {
   root.dataset.collapsed = String(collapsed)
   const button = root.querySelector<HTMLButtonElement>(`#${ROOT_ID}-collapse`)
   if (button) {
-    button.textContent = collapsed ? '+' : '—'
-    button.title = collapsed ? '展开面板' : '最小化面板'
+    button.textContent = collapsed ? '展开' : '—'
+    button.title = collapsed ? '展开面板' : '收起面板'
+    button.setAttribute('aria-label', button.title)
+    button.setAttribute('aria-expanded', String(!collapsed))
+  }
+  // Expanding the compact bar near the viewport edge should reveal the whole panel.
+  if (!collapsed) {
+    root.style.left = `${Math.max(12, Math.min(root.offsetLeft, window.innerWidth - root.offsetWidth - 12))}px`
+    root.style.top = `${Math.max(12, Math.min(root.offsetTop, window.innerHeight - root.offsetHeight - 12))}px`
   }
   clampAndSavePanelPosition(root, collapsed)
 }
@@ -983,13 +1076,11 @@ function makePanelDraggable(root: HTMLElement) {
   if (!header) return
   header.addEventListener('pointerdown', (event) => {
     if (event.button !== 0 || (event.target instanceof Element && event.target.closest('button'))) return
+    event.preventDefault()
+    root.dataset.dragging = 'true'
     const start = { x: event.clientX - root.offsetLeft, y: event.clientY - root.offsetTop }
     const move = (moveEvent: PointerEvent) => {
-      const position = clampPanelPosition(
-        { left: moveEvent.clientX - start.x, top: moveEvent.clientY - start.y },
-        { width: window.innerWidth, height: window.innerHeight },
-        { width: root.offsetWidth, height: root.offsetHeight },
-      )
+      const position = visiblePanelPosition(root, { left: moveEvent.clientX - start.x, top: moveEvent.clientY - start.y })
       root.style.left = `${position.left}px`
       root.style.right = 'auto'
       root.style.top = `${position.top}px`
@@ -997,10 +1088,13 @@ function makePanelDraggable(root: HTMLElement) {
     const end = () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', end)
+      window.removeEventListener('pointercancel', end)
+      delete root.dataset.dragging
       clampAndSavePanelPosition(root)
     }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', end)
+    window.addEventListener('pointercancel', end)
   })
 }
 
@@ -1008,109 +1102,7 @@ function injectStyles() {
   if (document.querySelector(`#${STYLE_ID}`)) return
   const style = document.createElement('style')
   style.id = STYLE_ID
-  style.textContent = `
-    #${ROOT_ID} { --panel:#101827; --surface:#182235; --surface-strong:#202d43; --line:#2b3a53; --muted:#91a0b8; --text:#f4f7fb; --accent:#4f8cff; --accent-strong:#2f6feb; --success:#36d399; background:var(--panel); border:1px solid #2c3b55; border-radius:14px; box-shadow:0 20px 48px rgba(2,6,23,.38); color:var(--text); font:13px/1.45 Inter,ui-sans-serif,system-ui,sans-serif; padding:10px 12px 12px; position:fixed; right:16px; top:16px; width:336px; z-index:2147483646; }
-    #${ROOT_ID}-header { align-items:center; cursor:grab; display:flex; gap:8px; margin:0 0 10px; padding:0 0 10px; border-bottom:1px solid var(--line); user-select:none; }
-    #${ROOT_ID}-header:active { cursor:grabbing; }
-    #${ROOT_ID}-title { font-size:16px; font-weight:750; letter-spacing:0; line-height:30px; white-space:nowrap; }
-    #${ROOT_ID}-title small { color:#7ea9ff !important; font-size:10px !important; font-weight:700; letter-spacing:.08em; margin-left:5px; text-transform:uppercase; vertical-align:1px; }
-    #${ROOT_ID}-collapse, #${ROOT_ID}-refresh { align-items:center; background:var(--surface-strong); border:1px solid #344561; border-radius:50%; color:#d7e3f7; display:flex; font-size:18px; height:30px; justify-content:center; line-height:1; padding:0; transition:background .15s ease, transform .15s ease; width:30px; }
-    #${ROOT_ID}-collapse:hover { background:#30466b; transform:translateY(-1px); }
-    #${ROOT_ID}[data-collapsed="true"] { padding:5px; width:auto; }
-    #${ROOT_ID}[data-collapsed="true"] #${ROOT_ID}-header { margin:0; }
-    #${ROOT_ID}[data-collapsed="true"] #${ROOT_ID}-title, #${ROOT_ID}[data-collapsed="true"] #${ROOT_ID}-connection, #${ROOT_ID}[data-collapsed="true"] #${ROOT_ID}-refresh { display:none; }
-    #${ROOT_ID}[data-collapsed="true"] .panel-body { display:none; }
-    #${ROOT_ID}-connection { align-items:center; background:#132a29; border:1px solid #1d4a43; border-radius:999px; color:#81e6bd; display:inline-flex; flex:1; font-size:11px; gap:6px; min-width:0; overflow:hidden; padding:5px 8px; text-overflow:ellipsis; white-space:nowrap; }
-    #${ROOT_ID}-connection::before { background:#f87171; border-radius:50%; box-shadow:0 0 0 3px rgba(248,113,113,.14); content:''; height:7px; width:7px; }
-    #${ROOT_ID}-connection[data-online="true"]::before { background:var(--success); box-shadow:0 0 0 3px rgba(54,211,153,.14); }
-    #${ROOT_ID} button { cursor:pointer; font:inherit; }
-    #${ROOT_ID}-refresh:hover { background:#30466b; border-color:#5d7eaf; transform:translateY(-1px); }
-    #${ROOT_ID}-mention-picker { background:#1b2639; border:1px solid #315a93; border-radius:8px; color:#d8e5fb; margin-top:10px; padding:9px; }
-    #${ROOT_ID}-mention-picker strong { display:block; font-size:12px; margin-bottom:7px; }
-    #${ROOT_ID} .mention-candidate { background:#223149; border:1px solid #405475; border-radius:6px; color:#d8e5fb; display:block; margin-top:6px; overflow:hidden; padding:7px 8px; text-align:left; text-overflow:ellipsis; white-space:nowrap; width:100%; }
-    #${ROOT_ID} .mention-candidate:hover { background:#30466b; border-color:#7ba9ff; }
-    #${ROOT_ID}-versions { border-top:1px solid var(--line); margin-top:12px; max-height:360px; overflow:auto; }
-    #${ROOT_ID} .article-group { border-bottom:1px solid var(--line); }
-    #${ROOT_ID} .article-group-toggle { align-items:center; background:transparent; border:0; color:var(--text); display:flex; gap:8px; min-height:50px; padding:10px 4px; text-align:left; width:100%; }
-    #${ROOT_ID} .article-group-toggle:hover { background:rgba(79,140,255,.08); }
-    #${ROOT_ID} .article-group-chevron { color:#8fb9ff; font-size:19px; line-height:1; text-align:center; width:14px; }
-    #${ROOT_ID} .article-group-title { flex:1; font-size:13px; font-weight:700; line-height:1.35; }
-    #${ROOT_ID} .article-group-count { color:var(--muted); font-size:11px; white-space:nowrap; }
-    #${ROOT_ID} .article-group[data-collapsed="true"] .article-version-list { display:none; }
-    #${ROOT_ID} .article-version-list { border-top:1px solid rgba(43,58,83,.72); margin:0 0 0 10px; }
-    #${ROOT_ID} .version-row { align-items:center; border-bottom:1px solid rgba(43,58,83,.72); display:flex; gap:10px; min-height:45px; padding:8px 4px 8px 10px; }
-    #${ROOT_ID} .version-row:last-child { border-bottom:0; }
-    #${ROOT_ID} .version-row[data-reusable="true"] { background:linear-gradient(90deg,rgba(54,211,153,.11),transparent 72%); box-shadow:inset 2px 0 0 #36d399; padding-left:10px; }
-    #${ROOT_ID} .version-detail { min-width:0; flex:1; }
-    #${ROOT_ID} .version-note, #${ROOT_ID} .version-tag, #${ROOT_ID} .version-meta { display:block; }
-    #${ROOT_ID} .version-note { color:#edf3fd; display:inline-block; font-size:12px; font-weight:700; margin-right:8px; }
-    #${ROOT_ID} .version-tag { color:#8fb9ff; display:inline-block; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; font-weight:750; letter-spacing:.04em; }
-    #${ROOT_ID} .version-meta { color:var(--muted); font-size:11px; margin-top:3px; }
-    #${ROOT_ID} .version-apply { background:#2f6feb; border:1px solid #4f8cff; border-radius:7px; color:#fff; font-size:12px; font-weight:750; line-height:1; min-width:38px; padding:8px 10px; transition:background .15s ease, border-color .15s ease, transform .15s ease; }
-    #${ROOT_ID} .version-apply:hover { background:#4f8cff; border-color:#7ba9ff; transform:translateY(-1px); }
-    #${ROOT_ID} .version-apply:disabled { background:#28364d; border-color:#3b4c67; color:#91a0b8; cursor:not-allowed; transform:none; }
-    #${ROOT_ID} .version-row[data-reusable="true"] .version-apply { background:#21685a; border-color:#3f917f; }
-    #${ROOT_ID} .version-row[data-reusable="true"] .version-apply:hover { background:#2d7d6d; border-color:#66b8a5; }
-    #${ROOT_ID} .empty { color:var(--muted); margin:5px 0; text-align:center; }
-    #${ROOT_ID}-message { background:#1b2639; border:1px solid #2e405c; border-radius:8px; color:#bac8dd; margin:12px 0 0; padding:9px 10px; }
-    #${ROOT_ID}-message:empty { display:none; }
-    #${ROOT_ID}-message[data-kind="success"] { background:#16362e; border-color:#245e4f; color:#9be7c4; }
-    #${ROOT_ID}-message[data-kind="warning"] { background:#3a2d18; border-color:#6a5024; color:#f3d38b; }
-    #${ROOT_ID}-message[data-kind="error"] { background:#41222a; border-color:#713543; color:#ffb4bd; }
-    #${ROOT_ID}-message[data-kind="working"] { background:#1c3154; border-color:#315a93; color:#b7d1ff; }
-    #${ROOT_ID}-cancel { background:transparent; border:1px solid #86505a; border-radius:8px; color:#ffb4bd; font-weight:700; margin-top:10px; padding:8px 10px; width:100%; }
-    #${ROOT_ID}-cancel:hover { background:#41222a; }
-    #${ROOT_ID}-cancel:disabled { color:#95717a; cursor:wait; }
-    /* Light, compact writing workspace. Keep all rules scoped to the panel. */
-    #${ROOT_ID} { --panel:#f8fafc; --surface:#fff; --line:#e2e8f0; --muted:#64748b; --text:#172b4d; background:var(--panel); color:var(--text); width:380px; max-width:calc(100vw - 24px); box-sizing:border-box; padding:16px; border:1px solid #dbe3ed; border-radius:18px; box-shadow:0 16px 48px #25385826,0 2px 8px #25385812; }
-    #${ROOT_ID} *, #${ROOT_ID} *::before { box-sizing:border-box; }
-    #${ROOT_ID} button:focus-visible { outline:2px solid #2563eb; outline-offset:2px; }
-    #${ROOT_ID}-header { gap:8px; flex-wrap:wrap; border:0; padding:0; margin-bottom:14px; }
-    #${ROOT_ID}-title { flex:1; font-size:16px; letter-spacing:-.3px; }
-    #${ROOT_ID}-connection { flex:0 0 auto; color:#64748b; background:#eef2f6; border:0; font-size:10px; padding:5px 7px; }
-    #${ROOT_ID}-connection[data-online="true"] { color:#13795b; background:#e6f5ee; }
-    #${ROOT_ID}-collapse, #${ROOT_ID}-refresh { background:#fff; border:1px solid #e2e8f0; color:#64748b; border-radius:9px; width:28px; height:28px; flex-shrink:0; }
-    #${ROOT_ID}-collapse:hover, #${ROOT_ID}-refresh:hover { background:#eef2ff; border-color:#c7d2fe; color:#3159bf; }
-    #${ROOT_ID}-settings { background:transparent; border:0; color:#64748b; border-radius:7px; padding:4px; font-size:11px; }
-    #${ROOT_ID}-settings:hover { background:#eef2ff; color:#3159bf; }
-    #${ROOT_ID}[data-collapsed="true"] #${ROOT_ID}-settings { display:none; }
-    #${ROOT_ID} .panel-tabs { display:flex; gap:4px; padding:4px; background:#eaf0f6; border-radius:10px; }
-    #${ROOT_ID} .panel-tabs button { flex:1; border:0; background:transparent; color:#64748b; padding:7px 8px; border-radius:7px; font-size:12px; }
-    #${ROOT_ID} .panel-tabs button[aria-pressed="true"] { color:#2449a6; background:#fff; box-shadow:0 1px 3px #172b4d12; font-weight:700; }
-    #${ROOT_ID}-versions { border:0; margin-top:12px; max-height:min(480px,calc(100vh - 210px)); padding:1px; scrollbar-width:thin; scrollbar-color:#cbd5e1 transparent; }
-    #${ROOT_ID} .article-group { background:#fff; border:1px solid #e2e8f0; border-radius:12px; margin-bottom:10px; overflow:hidden; }
-    #${ROOT_ID} .article-group:last-child { margin-bottom:0; }
-    #${ROOT_ID} .article-heading { display:flex; align-items:center; gap:4px; padding-right:10px; }
-    #${ROOT_ID} .article-group-toggle { min-width:0; flex:1; flex-wrap:wrap; gap:5px; padding:12px 10px; border-radius:8px; }
-    #${ROOT_ID} .article-group-toggle:disabled { cursor:default; opacity:1; }
-    #${ROOT_ID} .article-group-chevron { color:#94a3b8; width:12px; }
-    #${ROOT_ID} .article-group-title { font-size:13px; font-weight:600; line-height:1.55; overflow-wrap:anywhere; }
-    #${ROOT_ID} .article-group-count { width:100%; padding-left:17px; font-size:10px; }
-    #${ROOT_ID} .article-archive { flex-shrink:0; border:1px solid #e2e8f0; color:#64748b; background:#fff; padding:5px 8px; border-radius:7px; font-size:11px; }
-    #${ROOT_ID} .article-archive:hover { color:#3159bf; background:#eef2ff; border-color:#c7d2fe; }
-    #${ROOT_ID} .article-archive:disabled { opacity:.5; cursor:wait; }
-    #${ROOT_ID} .article-version-list { border-top:1px solid #eef2f6; margin:0 12px; }
-    #${ROOT_ID} .version-row { border-color:#f1f5f9; padding:10px 0; gap:8px; }
-    #${ROOT_ID} .version-note { color:#334155; font-weight:500; font-size:12px; overflow-wrap:anywhere; }
-    #${ROOT_ID} .version-tag { color:#49699b; background:#edf2fa; border-radius:4px; padding:1px 5px; font-size:10px; }
-    #${ROOT_ID} .version-meta { color:#94a3b8; font-size:10px; }
-    #${ROOT_ID} .version-apply { background:#edf3ff; border-color:#dce7ff; color:#3159bf; font-size:11px; padding:6px 10px; min-width:44px; }
-    #${ROOT_ID} .version-apply:hover { color:#fff; background:#3159bf; border-color:#3159bf; }
-    #${ROOT_ID} .version-apply:disabled { color:#94a3b8; background:#f1f5f9; border-color:#e2e8f0; }
-    #${ROOT_ID} .version-row[data-reusable="true"] .version-apply { color:#13795b; background:#e6f5ee; border-color:#c7eadc; }
-    #${ROOT_ID} .empty { padding:32px 12px; font-size:12px; line-height:1.8; }
-    #${ROOT_ID}-message { color:#64748b; background:#f1f5f9; border-color:#e2e8f0; font-size:12px; }
-    #${ROOT_ID}-message[data-kind="success"] { color:#13795b; background:#e6f5ee; border-color:#c7eadc; }
-    #${ROOT_ID}-message[data-kind="warning"] { color:#946200; background:#fff8e6; border-color:#f5e3b1; }
-    #${ROOT_ID}-message[data-kind="error"] { color:#b42338; background:#fff0f2; border-color:#f8cdd4; }
-    #${ROOT_ID}-message[data-kind="working"] { color:#3159bf; background:#edf3ff; border-color:#dce7ff; }
-    #${ROOT_ID}-cancel { color:#b42338; border-color:#f8cdd4; font-size:12px; }
-    #${ROOT_ID}-cancel:hover { background:#fff0f2; }
-    #${ROOT_ID}-mention-picker { color:#334155; background:#edf3ff; border-color:#dce7ff; }
-    #${ROOT_ID} .mention-candidate { color:#334155; background:#fff; border-color:#dce7ff; }
-    #${ROOT_ID} .mention-candidate:hover { background:#edf3ff; }
-    #${ROOT_ID}[data-collapsed="true"] #${ROOT_ID}-header { border:0; padding:0; }
-  `
+  style.textContent = panelStyles(ROOT_ID)
   document.head.append(style)
 }
 
@@ -1120,21 +1112,25 @@ function createPanel() {
   const root = document.createElement('aside')
   root.id = ROOT_ID
   root.innerHTML = `
-    <div id="${ROOT_ID}-header">
-      <span id="${ROOT_ID}-title">Space Writer${DEV_MODE ? ` <small>${DEV_LABEL}</small>` : ''}</span>
-      <div id="${ROOT_ID}-connection" data-online="false">Bridge 离线</div>
+    <div id="${ROOT_ID}-header" title="按住标题栏拖动">
+      <div class="panel-drag-handle">
+        <span class="panel-grip" aria-hidden="true"></span>
+        <span id="${ROOT_ID}-title">Space Writer${DEV_MODE ? ` <small>${DEV_LABEL}</small>` : ''}<span class="panel-drag-hint">按住这里拖动</span></span>
+      </div>
+      <div id="${ROOT_ID}-connection" data-online="false" title="本地文章服务未连接">未连接</div>
       <button id="${ROOT_ID}-settings" type="button" title="扩展设置与旧设置迁移" aria-label="扩展设置">设置</button>
       <button id="${ROOT_ID}-refresh" type="button" title="刷新版本" aria-label="刷新版本">↻</button>
       <button id="${ROOT_ID}-collapse" type="button" title="最小化面板">—</button>
     </div>
     <div class="panel-body">
       <div class="panel-tabs" aria-label="文章列表">
-        <button id="${ROOT_ID}-active" type="button" aria-pressed="true">正在编辑 · 0</button>
-        <button id="${ROOT_ID}-archive" type="button" aria-pressed="false">已归档 · 0</button>
+        <button id="${ROOT_ID}-active" type="button" aria-pressed="true">文章 · 0</button>
+        <button id="${ROOT_ID}-archive" type="button" aria-pressed="false">归档 · 0</button>
       </div>
       <div id="${ROOT_ID}-mention-picker" hidden></div>
       <div id="${ROOT_ID}-versions"></div>
       <button id="${ROOT_ID}-cancel" type="button" hidden>取消本次写入</button>
+      <div id="${ROOT_ID}-receipt" role="status" aria-live="polite" hidden></div>
       <p id="${ROOT_ID}-message" aria-live="polite"></p>
     </div>
   `
@@ -1169,6 +1165,7 @@ function createPanel() {
 }
 
 function maintainPage() {
+  syncReceipt()
   if (isThreadPage()) {
     createPanel()
   } else {
@@ -1178,8 +1175,9 @@ function maintainPage() {
 }
 
 function startCompanion() {
-  const observer = new MutationObserver(() => {
+  const observer = new MutationObserver((records) => {
     maintainPage()
+    if (lastWrite && records.some(record => record.target === lastWrite!.editor || lastWrite!.editor.contains(record.target))) syncReceipt()
     if (imageCacheEditor && !imageCacheEditor.isConnected) {
       imageCacheEditor = null
       imageFileKeys.clear()
@@ -1188,11 +1186,17 @@ function startCompanion() {
     }
   })
   observer.observe(document.documentElement, { childList: true, subtree: true })
+  document.addEventListener('input', syncReceipt, true)
+  document.addEventListener('change', syncReceipt, true)
   window.addEventListener('hashchange', maintainPage)
   window.addEventListener('popstate', maintainPage)
   window.addEventListener('resize', () => {
     const root = document.querySelector<HTMLElement>(`#${ROOT_ID}`)
-    if (root) clampAndSavePanelPosition(root)
+    if (root) {
+      root.style.left = `${Math.max(12, Math.min(root.offsetLeft, window.innerWidth - root.offsetWidth - 12))}px`
+      root.style.top = `${Math.max(12, Math.min(root.offsetTop, window.innerHeight - root.offsetHeight - 12))}px`
+      clampAndSavePanelPosition(root)
+    }
   })
   maintainPage()
 
