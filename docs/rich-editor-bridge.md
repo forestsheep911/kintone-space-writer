@@ -21,6 +21,27 @@ The Bridge is not a Windows startup service. A plugin operation starts it
 idempotently, it serves only the current workspace, and it exits after an idle
 period. Runtime state lives in ignored `local-runs/kintone-space-writer/`.
 
+The normal `ensure-bridge` / `mark-ready` entry points reuse a healthy instance
+and coordinate startup with `start.lock`. The `serve` process also holds a
+workspace-specific OS file lock for its entire lifetime, so calling `serve`
+directly cannot create a second participating instance for the same resolved
+workspace. A duplicate exits with an error directing the caller to
+`ensure-bridge`, before binding a port or modifying `bridge.json`.
+
+The lifetime lock uses [`msvcrt.locking`](https://docs.python.org/3/library/msvcrt.html)
+on Windows and [`fcntl.flock`](https://docs.python.org/3/library/fcntl.html) on Unix.
+Its `serve.lock` file intentionally remains after shutdown; the OS lock, rather
+than the file's presence or age, determines ownership. Normal exit, startup
+failure, and process termination release ownership without deleting that file.
+Stale discovery state can be replaced on the next successful start. A healthy
+older Bridge that predates the lock is also checked and preserved. Different
+workspaces may each run their own Bridge. Previously installed copies of the
+script must be updated/restarted to gain the new protection.
+
+The Windows process tests and isolated extension regression for this change are
+recorded in `validation-20261023-bridge-single-instance.json`. The Unix lock
+branch has not been run on a Unix host in this validation.
+
 ## Destination confirmation
 
 The rich route has no `kintone-targets.yaml` requirement. The user navigates to

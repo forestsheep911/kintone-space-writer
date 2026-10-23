@@ -1,0 +1,77 @@
+{
+  "date": "2026-10-23",
+  "change": "Workspace-scoped lifetime OS lock at direct serve entry point",
+  "bridgeProtocolVersion": 1,
+  "pythonValidation": {
+    "runtime": "3.13.13",
+    "platform": "win32",
+    "command": "python -W error::ResourceWarning -m unittest discover -s plugins/kintone-space-writer/scripts -p test_kintone_article_bridge.py -v",
+    "exitCode": 0,
+    "passed": 14,
+    "processChecks": [
+      "test_concurrent_direct_serve_has_exactly_one_owner",
+      "test_different_workspaces_can_run_at_the_same_time",
+      "test_direct_serve_rejects_duplicate_and_preserves_owner_state",
+      "test_ensure_bridge_starts_and_reuses_guarded_server",
+      "test_failed_port_binding_releases_lifetime_lock",
+      "test_forced_termination_releases_lock_and_stale_state_can_restart",
+      "test_healthy_legacy_server_without_lock_is_preserved",
+      "test_idle_shutdown_cleans_state_and_allows_restart",
+      "test_lifetime_lock_still_blocks_duplicate_without_discovery_file"
+    ],
+    "existingProtocolChecks": [
+      "test_http_lists_retained_versions_and_returns_package_without_target",
+      "test_http_ready_claim_asset_and_result_flow",
+      "test_mark_ready_keeps_each_version_available_for_manual_selection",
+      "test_new_revision_remains_ready_after_previous_revision_is_injected",
+      "test_ready_package_requires_no_target_configuration"
+    ]
+  },
+  "extensionRegression": {
+    "version": "0.4.2",
+    "id": "fgagjkdojbckcoibbanfejonhlcdbkob",
+    "environment": "isolated Chromium, real Python Bridge, mocked kintone HTTPS; external network blocked",
+    "checks": [
+      "one-article-initially-expanded",
+      "history-on-demand-survives-refresh",
+      "requires-user-opened-editor",
+      "real-python-bridge-nested-assets",
+      "main-world-token-and-mentions",
+      "ordered-native-image-row",
+      "never-publishes",
+      "creation-time-does-not-change-on-write",
+      "recent-write-and-manual-edit-state",
+      "same-editor-image-reuse",
+      "narrow-viewport-panel-fits-without-horizontal-overflow",
+      "compact-label-area-drags-with-separate-expand-button",
+      "compact-drag-handle-remains-in-viewport",
+      "compact-position-and-collapse-persist-after-reload",
+      "expanding-near-edge-keeps-panel-visible",
+      "archive-restore-persists-after-reload",
+      "new-editor-reuploads-images",
+      "cancel-preserves-existing-editor",
+      "upload-failure-preserves-existing-editor",
+      "thread-navigation-during-upload-prevents-insertion",
+      "exporter-download-to-settings-import",
+      "settings-import-live-sync",
+      "options-page-cannot-proxy-bridge",
+      "content-script-cannot-escape-bridge-port-range",
+      "untrusted-host-not-injected",
+      "service-worker-termination-and-event-recovery",
+      "browser-and-worker-restart-retains-storage-and-id"
+    ],
+    "uploads": 7,
+    "publishes": 0,
+    "pageErrors": [],
+    "liveTenantAcceptance": false
+  },
+  "unixLockRuntimeTested": false,
+  "publicPluginRelease": false,
+  "installedPluginCachesUpdated": false,
+  "extensionRebuildRequired": false,
+  "activation": "Start the updated Bridge script; existing old processes and installed plugin snapshots are not hot-updated.",
+  "references": [
+    "https://docs.python.org/3/library/msvcrt.html",
+    "https://docs.python.org/3/library/fcntl.html"
+  ]
+}

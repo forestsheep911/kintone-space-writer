@@ -84,6 +84,15 @@ plugins/kintone-space-writer/
 The plugin and companion are developed together from this repository; no public
 Store or marketplace release is required for normal use.
 
+The intended user-facing installation consists of the Codex plugin and the
+browser extension. The plugin includes the Bridge script and starts it on
+demand; users do not need to install or manually launch a separate service.
+The current implementation requires an available local Python runtime. A
+bundled Bridge executable or automatic host-runtime discovery has not yet been
+implemented, so these two installations alone are not yet sufficient on a
+machine without Python. YAML/REST tools use `requirements.txt`; the standard
+Bridge script itself uses only the Python standard library.
+
 ## Skills
 
 `kintone-space-writer`
@@ -326,6 +335,12 @@ Check Python syntax:
 
 ```powershell
 .\.venv\Scripts\python -m py_compile plugins/kintone-space-writer/scripts/kintone_space_comment.py plugins/kintone-space-writer/scripts/kintone_article_bridge.py
+```
+
+Run the Bridge tests, including real-process duplicate startup and restart checks:
+
+```powershell
+python -m unittest discover -s plugins/kintone-space-writer/scripts -p test_kintone_article_bridge.py -v
 ```
 
 For daily development, load `dist/kintone-space-writer-extension/` once using

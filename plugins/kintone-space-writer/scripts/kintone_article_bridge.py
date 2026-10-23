@@ -9,6 +9,7 @@ itself.
 from __future__ import annotations
 
 import argparse
+import errno
 import hashlib
 import json
 import os
@@ -21,11 +22,12 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 SERVICE_NAME = "kintone-space-writer-bridge"
 SCHEMA = "kintone-space-writer.bridge-package.v1"
@@ -421,6 +423,36 @@ def read_state(workspace: Path) -> dict[str, Any] | None:
         return None
 
 
+@contextmanager
+def workspace_server_lock(workspace: Path) -> Iterator[None]:
+    directory = state_dir(workspace)
+    directory.mkdir(parents=True, exist_ok=True)
+    # Keep this file in place: unlinking a released lock can let two processes
+    # lock different files at the same path. Ownership is the OS lock, not its age.
+    with (directory / "serve.lock").open("a+b") as lock:
+        lock.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                # Locking beyond EOF is supported; no competing process needs
+                # to write the first byte just to initialize an empty file.
+                msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            if exc.errno in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+                raise BridgeError(
+                    "A Bridge is already running or starting for this workspace. "
+                    "Use ensure-bridge to reuse it."
+                ) from exc
+            raise BridgeError(f"Could not lock the workspace Bridge: {exc}") from exc
+        # Closing the handle releases the lock, also after a crash or process kill.
+        yield
+
+
 def spawn_server(workspace: Path, port_start: int, port_end: int, idle_timeout: int) -> None:
     command = [
         sys.executable,
@@ -716,35 +748,42 @@ class BridgeHandler(BaseHTTPRequestHandler):
 def serve(workspace: Path, port_start: int, port_end: int, idle_timeout: int) -> int:
     if port_start < 1024 or port_end < port_start or port_end > 65535:
         raise BridgeError("Invalid bridge port range")
-    instance_id = secrets.token_hex(12)
-    token = secrets.token_urlsafe(32)
-    server: BridgeServer | None = None
-    for port in range(port_start, port_end + 1):
+    workspace = workspace_path(workspace)
+    with workspace_server_lock(workspace):
+        # An older running Bridge may predate the lifetime lock. Preserve its
+        # healthy instance instead of overwriting its discovery state.
+        existing = read_state(workspace)
+        if existing and healthy_state(existing):
+            raise BridgeError("A Bridge is already running for this workspace. Use ensure-bridge to reuse it.")
+        instance_id = secrets.token_hex(12)
+        token = secrets.token_urlsafe(32)
+        server: BridgeServer | None = None
+        for port in range(port_start, port_end + 1):
+            try:
+                server = BridgeServer(("127.0.0.1", port), workspace, instance_id, token)
+                break
+            except OSError:
+                continue
+        if server is None:
+            raise BridgeError(f"No free bridge port in range {port_start}-{port_end}")
+        state = {
+            "service": SERVICE_NAME,
+            "instanceId": instance_id,
+            "pid": os.getpid(),
+            "port": server.server_port,
+            "startedAt": utc_now(),
+            "workspace": str(workspace),
+        }
         try:
-            server = BridgeServer(("127.0.0.1", port), workspace, instance_id, token)
-            break
-        except OSError:
-            continue
-    if server is None:
-        raise BridgeError(f"No free bridge port in range {port_start}-{port_end}")
-    state = {
-        "service": SERVICE_NAME,
-        "instanceId": instance_id,
-        "pid": os.getpid(),
-        "port": server.server_port,
-        "startedAt": utc_now(),
-        "workspace": str(workspace),
-    }
-    atomic_write_json(bridge_state_path(workspace), state)
-    server.timeout = 1
-    try:
-        while time.monotonic() - server.last_activity < idle_timeout:
-            server.handle_request()
-    finally:
-        server.server_close()
-        current = read_state(workspace)
-        if current and current.get("instanceId") == instance_id:
-            bridge_state_path(workspace).unlink(missing_ok=True)
+            atomic_write_json(bridge_state_path(workspace), state)
+            server.timeout = 1
+            while time.monotonic() - server.last_activity < idle_timeout:
+                server.handle_request()
+        finally:
+            server.server_close()
+            current = read_state(workspace)
+            if current and current.get("instanceId") == instance_id:
+                bridge_state_path(workspace).unlink(missing_ok=True)
     return 0
 
 
