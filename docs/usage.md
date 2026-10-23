@@ -26,8 +26,8 @@ Only the REST fallback needs `.env` and `kintone-targets.yaml`. Run these
 commands from the article workspace when you plan to use that route:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-env
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-targets
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest init-env
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest init-targets
 ```
 
 If the plugin path is different in your workspace, adjust the path to `kintone_space_comment.py`.
@@ -111,7 +111,7 @@ See [rich-editor-bridge.md](rich-editor-bridge.md) for the schema and example.
 From the article workspace:
 
 ```powershell
-python <plugin>/scripts/kintone_article_bridge.py mark-ready --workspace . --article drafts/article-v001.rich.json --assets-root assets
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" bridge mark-ready --workspace . --article drafts/article-v001.rich.json --assets-root assets
 ```
 
 This starts or reuses the Bridge. It does not create a Windows startup service.
@@ -154,7 +154,7 @@ The remaining sections apply only when the rich Web route is unavailable.
 Run preflight before any real post:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target test-news preflight
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest --target test-news preflight
 ```
 
 Expected output is a non-secret summary:
@@ -178,7 +178,7 @@ If a required file or value is missing, the script prints setup instructions ins
 Dry-run the comment payload:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target test-news post-comment --text-file drafts/article-v001.txt --image assets/cover.png --dry-run
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest --target test-news post-comment --text-file drafts/article-v001.txt --image assets/cover.png --dry-run
 ```
 
 The dry run prints the comment payload without calling the kintone API.
@@ -188,7 +188,7 @@ The dry run prints the comment payload without calling the kintone API.
 Post to a test target first when available:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target test-news post-comment --text-file drafts/article-v001.txt --image assets/cover.png --archive-dir metadata/publish-log/test --draft-id article-v001 --title "Article title"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest --target test-news post-comment --text-file drafts/article-v001.txt --image assets/cover.png --archive-dir metadata/publish-log/test --draft-id article-v001 --title "Article title"
 ```
 
 Ask the user to inspect the kintone Web UI after the test comment is created.
@@ -198,7 +198,7 @@ Ask the user to inspect the kintone Web UI after the test comment is created.
 After the user confirms the test rendering and content:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target company-news post-comment --text-file drafts/article-v001.txt --image assets/cover.png --archive-dir metadata/publish-log/prod --draft-id article-v001 --title "Article title"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest --target company-news post-comment --text-file drafts/article-v001.txt --image assets/cover.png --archive-dir metadata/publish-log/prod --draft-id article-v001 --title "Article title"
 ```
 
 Test and production comments receive separate kintone comment IDs.
@@ -208,7 +208,7 @@ Test and production comments receive separate kintone comment IDs.
 If the user deletes a wrong test comment manually in kintone, mark the local record:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py mark-record --record metadata/publish-log/test/<record>.json --status deleted-manual --note "Deleted in kintone Web UI after wrong target or text."
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest mark-record --record metadata/publish-log/test/<record>.json --status deleted-manual --note "Deleted in kintone Web UI after wrong target or text."
 ```
 
 Create a new draft version before reposting.

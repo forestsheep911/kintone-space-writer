@@ -1,2 +1,2 @@
-# Required to read kintone-targets.yaml for the Bridge and REST fallback.
-PyYAML>=6.0,<7
+# Legacy developer fallback; production launchers use the plugin uv.lock.
+PyYAML==6.0.3

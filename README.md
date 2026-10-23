@@ -84,14 +84,23 @@ plugins/kintone-space-writer/
 The plugin and companion are developed together from this repository; no public
 Store or marketplace release is required for normal use.
 
+Commands below use the Windows launcher. Replace `<plugin>` with the installed
+plugin's absolute path. On macOS/Linux use `sh "<plugin>/scripts/run.sh"` in
+place of the PowerShell prefix, followed by the same tool and arguments.
+
 The intended user-facing installation consists of the Codex plugin and the
 browser extension. The plugin includes the Bridge script and starts it on
 demand; users do not need to install or manually launch a separate service.
-The current implementation requires an available local Python runtime. A
-bundled Bridge executable or automatic host-runtime discovery has not yet been
-implemented, so these two installations alone are not yet sufficient on a
-machine without Python. YAML/REST tools use `requirements.txt`; the standard
-Bridge script itself uses only the Python standard library.
+Plugin `0.3.0` provides `run.ps1` / `run.sh` launchers that obtain checksum-pinned
+uv, discover compatible Python or download a managed version, and synchronize
+the plugin's `uv.lock` into a private user environment. No Python/uv installation
+or global pip command is required from the user. The Windows x64 delivery ZIP
+includes uv. First use still needs network access to the pinned uv/Python release
+files and PyPI; it is not an offline installer. See the plugin
+[installation and runtime guide](plugins/kintone-space-writer/INSTALL.md).
+
+Windows x64 is the validated delivery platform. Windows ARM64, macOS and glibc
+Linux launchers/manifests are supplied for subsequent platform acceptance.
 
 ## Skills
 
@@ -116,8 +125,8 @@ For a step-by-step operational guide, see [docs/usage.md](docs/usage.md).
 If you need the REST fallback, create its local configuration files:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-env
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-targets
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest init-env
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest init-targets
 ```
 
 This creates:
@@ -191,8 +200,8 @@ environments:
 Run preflight before posting:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target test-news preflight
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target company-news preflight
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest --target test-news preflight
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest --target company-news preflight
 ```
 
 ## Drafting Workflow
@@ -240,19 +249,19 @@ Do not rely on Markdown headings, Markdown bold, Markdown links, highlight marke
 Dry-run a payload:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target test-news post-comment --text-file drafts/article-v001.txt --image assets/cover.png --dry-run
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest --target test-news post-comment --text-file drafts/article-v001.txt --image assets/cover.png --dry-run
 ```
 
 Post and write a local publish record:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target test-news post-comment --text-file drafts/article-v001.txt --image assets/cover.png --archive-dir metadata/publish-log/test --draft-id article-v001 --title "Article title"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest --target test-news post-comment --text-file drafts/article-v001.txt --image assets/cover.png --archive-dir metadata/publish-log/test --draft-id article-v001 --title "Article title"
 ```
 
 Production example:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target company-news post-comment --text-file drafts/article-v001.txt --image assets/cover.png --archive-dir metadata/publish-log/prod --draft-id article-v001 --title "Article title"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest --target company-news post-comment --text-file drafts/article-v001.txt --image assets/cover.png --archive-dir metadata/publish-log/prod --draft-id article-v001 --title "Article title"
 ```
 
 ## Publish Records
@@ -314,11 +323,11 @@ Deckit may be used as a reference for plugin repository layout and generated-ass
 
 ## Development
 
-Create the local Python environment once for the Bridge and YAML target tools:
+Create a locked development environment with uv (the production launchers do
+not require uv on PATH):
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python -m pip install -r requirements.txt
+uv sync --project plugins/kintone-space-writer --locked
 ```
 
 Build and verify the locally installable companion extension:
@@ -334,14 +343,26 @@ cd ..
 Check Python syntax:
 
 ```powershell
-.\.venv\Scripts\python -m py_compile plugins/kintone-space-writer/scripts/kintone_space_comment.py plugins/kintone-space-writer/scripts/kintone_article_bridge.py
+uv run --project plugins/kintone-space-writer --locked python -m py_compile plugins/kintone-space-writer/scripts/kintone_space_comment.py plugins/kintone-space-writer/scripts/kintone_article_bridge.py
 ```
 
 Run the Bridge tests, including real-process duplicate startup and restart checks:
 
 ```powershell
-python -m unittest discover -s plugins/kintone-space-writer/scripts -p test_kintone_article_bridge.py -v
+uv run --project plugins/kintone-space-writer --locked python -m unittest discover -s plugins/kintone-space-writer/scripts -p test_kintone_article_bridge.py -v
 ```
+
+Build a reviewable plugin delivery ZIP, excluding real settings and credentials:
+
+```powershell
+python scripts/package_plugin.py --target windows-x86_64
+python scripts/check_runtime_delivery.py
+```
+
+The ZIP in `dist/` includes portable and legacy plugin manifests, locked runtime
+metadata, launchers, and a verified platform uv binary. `--target portable`
+omits the binary and downloads it on first use. This creates a local delivery
+artifact; it does not publish to a plugin marketplace or replace installed caches.
 
 For daily development, load `dist/kintone-space-writer-extension/` once using
 "Load unpacked". This build directory has a fixed name with no version suffix.

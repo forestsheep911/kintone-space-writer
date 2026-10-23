@@ -15,10 +15,27 @@ Use the rich Ready bridge as the standard route. It fills the browser editor but
 does not publish. Preserve the REST route below as the fallback for plain text
 and trailing attachments.
 
+## Managed Runtime Entry
+
+Resolve the installed plugin root from this skill's directory. Use absolute
+launcher paths, preserving the article workspace as the working directory.
+On Windows call `powershell.exe -NoProfile -ExecutionPolicy Bypass -File
+"<plugin>/scripts/run.ps1" <tool> ...`. On macOS/Linux call
+`sh "<plugin>/scripts/run.sh" <tool> ...`. The fixed tools are `bridge`, `rest`,
+and `doctor`. Examples below show the Windows prefix; use the Unix prefix on
+macOS/Linux with the same tool and arguments.
+
+The launcher obtains pinned uv, finds or downloads compatible Python, and
+prepares a versioned private environment from `uv.lock`. First use requires
+network access; later calls reuse the environment. Do not invoke bare Python
+or pip, install global packages, activate the article workspace's `.venv`, or
+modify the installed plugin directory. A failed bootstrap must be reported;
+do not bypass it with an unrelated interpreter. Use `doctor` for diagnostics.
+
 ## Standard Rich-Article Flow
 
 The locally installed companion Chrome extension consumes `kintone-rich-article.v1`
-JSON from the local Bridge. Resolve `../../scripts/kintone_article_bridge.py`
+JSON from the local Bridge. The launcher dispatches to `../../scripts/kintone_article_bridge.py`
 from this skill's directory; do not assume the plugin source is inside the
 article workspace.
 
@@ -35,7 +52,7 @@ Before marking a draft Ready:
 2. Start or reuse the Bridge and mark the package Ready in one operation:
 
 ```powershell
-python <plugin>/scripts/kintone_article_bridge.py mark-ready --workspace . --article drafts/article-v001.rich.json --assets-root assets
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" bridge mark-ready --workspace . --article drafts/article-v001.rich.json --assets-root assets
 ```
 
 `mark-ready` is idempotent. A new version of the same article is retained beside
@@ -70,8 +87,8 @@ alias, origin, Space ID, or Thread ID for this route.
 Useful recovery commands:
 
 ```powershell
-python <plugin>/scripts/kintone_article_bridge.py list --workspace .
-python <plugin>/scripts/kintone_article_bridge.py retry --workspace . --package-id <id>
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" bridge list --workspace .
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" bridge retry --workspace . --package-id <id>
 ```
 
 The article schema supports ordered `heading`, `paragraph`, `quote`,
@@ -109,8 +126,8 @@ Prefer target aliases over separate env files. The YAML is nested by kintone men
 If the workspace target or env file is missing or incomplete, do not ask the user to infer the format. Tell them exactly which file to create and point them to the bundled examples. Prefer the script's setup commands because they copy the right templates into the current article workspace:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-env
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-targets
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest init-env
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest init-targets
 ```
 
 After the user fills `.env` passwords and edits `kintone-targets.yaml`, run `preflight` for the requested alias before any real post.
@@ -182,36 +199,36 @@ Use `../../scripts/kintone_space_comment.py` for dry runs, file upload, and comm
 Recommended preflight:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-env
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-targets
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target test-news preflight
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target company-news preflight
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest init-env
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest init-targets
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest --target test-news preflight
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest --target company-news preflight
 ```
 
 Dry-run a comment payload:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target test-news post-comment --text-file article.txt --image cover.png --dry-run
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest --target test-news post-comment --text-file article.txt --image cover.png --dry-run
 ```
 
 Post after review:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target test-news post-comment --text-file article.txt --image cover.png
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest --target test-news post-comment --text-file article.txt --image cover.png
 ```
 
 For production posts, write a local publish record:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target test-news post-comment --text-file drafts/article-v001.md --image assets/cover.png --archive-dir metadata/publish-log/test --draft-id article-v001 --title "Article title"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest --target test-news post-comment --text-file drafts/article-v001.md --image assets/cover.png --archive-dir metadata/publish-log/test --draft-id article-v001 --title "Article title"
 
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target company-news post-comment --text-file drafts/article-v001.md --image assets/cover.png --archive-dir metadata/publish-log/prod --draft-id article-v001 --title "Article title"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest --target company-news post-comment --text-file drafts/article-v001.md --image assets/cover.png --archive-dir metadata/publish-log/prod --draft-id article-v001 --title "Article title"
 ```
 
 If the user deletes a wrong comment manually in kintone, mark the local record:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py mark-record --record metadata/publish-log/<record>.json --status deleted-manual --note "Deleted in kintone Web UI after wrong target/text."
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest mark-record --record metadata/publish-log/<record>.json --status deleted-manual --note "Deleted in kintone Web UI after wrong target/text."
 ```
 
 Then create a new draft version and post again. Do not overwrite the old publish record.

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "kintone-space-writer",
+  "version": "0.3.0",
+  "description": "Draft, prepare, and hand rich articles to kintone Space through a local Ready bridge.",
+  "author": {
+    "name": "Local developer"
+  },
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Kintone Space Writer",
+        "shortDescription": "Rich posts for kintone Space",
+        "longDescription": "Drafts and refines kintone Space articles, prepares an isolated local runtime, and stages rich text with inline images for browser-side review through a local Ready bridge.",
+        "developerName": "Local developer",
+        "category": "Productivity",
+        "capabilities": [
+          "writing",
+          "editing",
+          "content-preparation",
+          "publishing",
+          "rich-text-bridge"
+        ],
+        "defaultPrompt": "Help me draft a kintone Space article."
+      }
+    }
+  }
+}

@@ -1,0 +1,108 @@
+{
+  "date": "2026-10-23",
+  "pluginVersion": "0.3.0",
+  "extensionVersion": "0.4.2",
+  "uvVersion": "0.11.14",
+  "pythonVersion": "3.13.13",
+  "runtimeAcceptance": {
+    "environment": "Windows x64 / Windows PowerShell 5.1; stripped PATH; forced managed Python; not a clean VM",
+    "passed": 20,
+    "checks": [
+      "zip-integrity-and-per-file-receipt",
+      "real-credentials-and-target-settings-excluded",
+      "first-use-without-system-python-or-uv",
+      "managed-python-downloaded-privately",
+      "locked-pyyaml-in-private-venv",
+      "space-and-chinese-paths-and-cwd-preserved",
+      "inherited-pythonpath-cannot-import-article-environment",
+      "warm-runtime-reused-offline",
+      "existing-system-python-reused-with-private-packages",
+      "concurrent-launchers-reuse-one-environment",
+      "article-ready-through-managed-launcher",
+      "bridge-child-starts-with-private-python",
+      "existing-bridge-reused",
+      "rest-tool-and-yaml-dependency-work-without-posting",
+      "corrupt-bundled-uv-is-rejected-before-execution",
+      "downloaded-uv-archive-checksum-mismatch-is-rejected",
+      "portable-uv-download-verify-extract-and-reuse",
+      "lock-mismatch-fails-without-rewriting-lock-or-installing-globally",
+      "installed-plugin-tree-remains-unchanged",
+      "article-project-venv-not-used-or-modified"
+    ],
+    "evidence": "local-runs/runtime-delivery/run-50h4c36y/report.json"
+  },
+  "bridgeTests": {
+    "passed": 14,
+    "runtime": "private uv-managed Python 3.13.13; Windows venv redirector PID handling included"
+  },
+  "browserRegression": {
+    "version": "0.4.2",
+    "id": "fgagjkdojbckcoibbanfejonhlcdbkob",
+    "environment": "isolated Chromium, real Python Bridge, mocked kintone HTTPS; external network blocked",
+    "checks": [
+      "one-article-initially-expanded",
+      "history-on-demand-survives-refresh",
+      "requires-user-opened-editor",
+      "real-python-bridge-nested-assets",
+      "main-world-token-and-mentions",
+      "ordered-native-image-row",
+      "never-publishes",
+      "creation-time-does-not-change-on-write",
+      "recent-write-and-manual-edit-state",
+      "same-editor-image-reuse",
+      "narrow-viewport-panel-fits-without-horizontal-overflow",
+      "compact-label-area-drags-with-separate-expand-button",
+      "compact-drag-handle-remains-in-viewport",
+      "compact-position-and-collapse-persist-after-reload",
+      "expanding-near-edge-keeps-panel-visible",
+      "archive-restore-persists-after-reload",
+      "new-editor-reuploads-images",
+      "cancel-preserves-existing-editor",
+      "upload-failure-preserves-existing-editor",
+      "thread-navigation-during-upload-prevents-insertion",
+      "exporter-download-to-settings-import",
+      "settings-import-live-sync",
+      "options-page-cannot-proxy-bridge",
+      "content-script-cannot-escape-bridge-port-range",
+      "untrusted-host-not-injected",
+      "service-worker-termination-and-event-recovery",
+      "browser-and-worker-restart-retains-storage-and-id"
+    ],
+    "uploads": 7,
+    "publishes": 0,
+    "pageErrors": [],
+    "liveTenantAcceptance": false
+  },
+  "packages": [
+    {
+      "version": "0.3.0",
+      "target": "windows-x86_64",
+      "bytes": 23786075,
+      "sha256": "1d3dcb37e77941235577588d134c3285f00969f0bf246b0232c5172c17a7c5fc",
+      "files": 31,
+      "firstUseNeedsNetwork": true
+    },
+    {
+      "version": "0.3.0",
+      "target": "portable",
+      "bytes": 63631,
+      "sha256": "08263333f4cf52a4dd370f0a0fe711305c2db557706b91e033db62ad5c349cb8",
+      "files": 30,
+      "firstUseNeedsNetwork": true
+    }
+  ],
+  "portableManifestAndSkillMetadataValidated": true,
+  "pinnedUvArchivesVerified": 6,
+  "shellSyntaxCheckedWithGitBash": true,
+  "cleanVmAcceptance": false,
+  "macLinuxNativeAcceptance": false,
+  "codexUiInstallAcceptance": false,
+  "publicMarketplacePublished": false,
+  "installedPluginCachesUpdated": false,
+  "firstUseNeedsNetwork": true,
+  "sources": [
+    "https://docs.astral.sh/uv/concepts/python-versions/",
+    "https://docs.astral.sh/uv/concepts/projects/sync/",
+    "https://github.com/astral-sh/uv/releases/tag/0.11.14"
+  ]
+}

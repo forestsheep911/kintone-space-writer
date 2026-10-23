@@ -13,6 +13,14 @@ Neither route updates a Space/thread body or creates a thread.
 
 ## Standard Ready Bridge
 
+Plugin tools enter through `scripts/run.ps1` (Windows) or `scripts/run.sh`
+(macOS/Linux). Those non-Python launchers verify a pinned uv executable, then
+use the plugin's `pyproject.toml` and `uv.lock` to prepare a private environment
+under the user's Space Writer runtime directory. Compatible installed Python
+can be reused; otherwise uv downloads the pinned managed interpreter. Plugin
+installation files and article workspaces do not receive dependency installs.
+First use is online; an offline installer is outside this delivery version.
+
 The Bridge binds to `127.0.0.1` and selects the first free port from 8787–8807.
 Plugin calls start it idempotently; it is not registered as a Windows service
 and exits after an idle timeout. Its workspace-local queue is ignored by Git.
@@ -176,15 +184,15 @@ KINTONE_ENV2_PASSWORD=
 The script accepts a target alias:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target test-news preflight
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py --target company-news preflight
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest --target test-news preflight
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest --target company-news preflight
 ```
 
 For a new article workspace, create the env and target files from bundled examples instead of writing them by hand:
 
 ```powershell
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-env
-python plugins/kintone-space-writer/scripts/kintone_space_comment.py init-targets
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest init-env
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" rest init-targets
 ```
 
 If the env or target file is missing or required values are blank, the script prints a plain-language setup guide showing the file it tried to use, the example file to copy, the required fields, and the preflight command to rerun. This is intentional: a first-time user should not have to inspect Python errors or plugin source to know the next step.

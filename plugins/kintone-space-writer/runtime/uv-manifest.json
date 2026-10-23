@@ -1,0 +1,42 @@
+{
+  "uvVersion": "0.11.14",
+  "pythonVersion": "3.13.13",
+  "platforms": {
+    "windows-x86_64": {
+      "url": "https://github.com/astral-sh/uv/releases/download/0.11.14/uv-x86_64-pc-windows-msvc.zip",
+      "archiveSha256": "52ba5d19409aaa688a8a1a6ec8dfb6a4817230d20186e75f4006105c3e39a846",
+      "member": "uv.exe",
+      "executableSha256": "442b73298cf8648217e5bc232588bb1067f98ea5b40beea18e43c9c7929c020c"
+    },
+    "windows-aarch64": {
+      "url": "https://github.com/astral-sh/uv/releases/download/0.11.14/uv-aarch64-pc-windows-msvc.zip",
+      "archiveSha256": "d66c76ba912ba66fed011e0189dfbc4527dd9e620a2b5d5d5ecd2ad8936601b8",
+      "member": "uv.exe",
+      "executableSha256": "2ec281b73c6a79efc5712ff16a999dc73e8b7268be7156494b930edcd27d1110"
+    },
+    "macos-x86_64": {
+      "url": "https://github.com/astral-sh/uv/releases/download/0.11.14/uv-x86_64-apple-darwin.tar.gz",
+      "archiveSha256": "9836c1440b0bd6aa5f81793648a339bd01d593b7b8f575de3b855dae4ab64654",
+      "member": "uv-x86_64-apple-darwin/uv",
+      "executableSha256": "1bb756786175621eea70219911d02bf8d3e32203bb5a7a19b345e44d031f436e"
+    },
+    "macos-aarch64": {
+      "url": "https://github.com/astral-sh/uv/releases/download/0.11.14/uv-aarch64-apple-darwin.tar.gz",
+      "archiveSha256": "4333af5c0730d94323a7819bbdf87ce92dd07fc857d67fff0059e0fca31b5c02",
+      "member": "uv-aarch64-apple-darwin/uv",
+      "executableSha256": "77b80ca26ad2142c50b870c730d9b8f617665720f09888630257b40d0678e658"
+    },
+    "linux-x86_64": {
+      "url": "https://github.com/astral-sh/uv/releases/download/0.11.14/uv-x86_64-unknown-linux-gnu.tar.gz",
+      "archiveSha256": "f3b623eb0e6141a7053d571d59a0bdc341e0f238ea8f5f0b4815ddbec9a2a296",
+      "member": "uv-x86_64-unknown-linux-gnu/uv",
+      "executableSha256": "b5cbc3a3f35debad0b4770811efd190bcf460b654114d6a3f71e0ce298468e5d"
+    },
+    "linux-aarch64": {
+      "url": "https://github.com/astral-sh/uv/releases/download/0.11.14/uv-aarch64-unknown-linux-gnu.tar.gz",
+      "archiveSha256": "c4958f729e216f1610632574ed927b8cf0af1bd02cb88cb30d948571727aee43",
+      "member": "uv-aarch64-unknown-linux-gnu/uv",
+      "executableSha256": "db33f7d646d7600e8c48b70f3d86e14e48a12e8717ff44cc05141ace6e19eacc"
+    }
+  }
+}

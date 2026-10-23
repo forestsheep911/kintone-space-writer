@@ -143,8 +143,8 @@ def load_targets(path: Path) -> dict[str, Any]:
             "\n".join(
                 [
                     "Reading kintone-targets.yaml requires PyYAML.",
-                    "Install it for this Python environment:",
-                    "   python -m pip install pyyaml",
+                    "Use the plugin run.ps1 / run.sh launcher to prepare its isolated environment.",
+                    "Developers: uv sync --project <plugin> --locked",
                     "",
                     "You can still use the old single-target .env mode without YAML.",
                 ]

@@ -6,6 +6,11 @@ the native publish button. The REST publisher remains available as a fallback.
 
 ## Components
 
+Tool examples use the Windows launcher. On macOS/Linux replace the PowerShell
+prefix with `sh "<plugin>/scripts/run.sh"`; preserve the `bridge` / `rest` tool
+selector and remaining arguments. The launcher prepares the private runtime as
+described in the plugin's `INSTALL.md`.
+
 ```text
 article workspace
   drafts/article-v001.rich.json + assets/*
@@ -128,7 +133,7 @@ guessing from a large numeric width. It is deliberately not the default for an
 ## Ready operation and manual versions
 
 ```powershell
-python <plugin>/scripts/kintone_article_bridge.py mark-ready `
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<plugin>/scripts/run.ps1" bridge mark-ready `
   --workspace . `
   --article drafts/article-v001.rich.json `
   --assets-root assets

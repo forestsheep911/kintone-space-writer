@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -183,9 +184,15 @@ class BridgeProcessTest(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.workspace = Path(self.temporary.name)
         self.processes: list[subprocess.Popen] = []
+        self.server_states: dict[int, dict] = {}
         self.ports: set[int] = set()
 
     def tearDown(self) -> None:
+        # Windows venv redirectors can have a different PID from the actual
+        # interpreter. Stop only healthy owners registered by this test fixture.
+        for pid, state in self.server_states.items():
+            if bridge.healthy_state(state):
+                os.kill(pid, signal.SIGTERM)
         for process in reversed(self.processes):
             if process.poll() is None:
                 process.kill()
@@ -217,7 +224,9 @@ class BridgeProcessTest(unittest.TestCase):
             if process.poll() is not None:
                 self.fail(f"Bridge exited before startup: {process.communicate()[1]}")
             state = bridge.read_state(workspace or self.workspace)
-            if state and state.get("pid") == process.pid and bridge.healthy_state(state):
+            if state and bridge.healthy_state(state):
+                self.assertEqual(state["workspace"], str(bridge.workspace_path(workspace or self.workspace)))
+                self.server_states[state["pid"]] = state
                 return state
             time.sleep(0.03)
         self.fail("Bridge did not become ready")
@@ -260,7 +269,7 @@ class BridgeProcessTest(unittest.TestCase):
         owners = [process for process in candidates if process.poll() is None]
         self.assertEqual(len(owners), 1)
         state = self.wait_ready(owners[0])
-        self.assertEqual(state["pid"], owners[0].pid)
+        self.assertTrue(bridge.healthy_state(state))
         for process in candidates:
             if process is not owners[0]:
                 self.assert_duplicate_rejected(process)
@@ -268,14 +277,14 @@ class BridgeProcessTest(unittest.TestCase):
     def test_forced_termination_releases_lock_and_stale_state_can_restart(self) -> None:
         owner = self.start_bridge()
         old_state = self.wait_ready(owner)
-        owner.kill()
+        os.kill(old_state["pid"], signal.SIGTERM)
         owner.communicate(timeout=5)
         self.assertTrue(bridge.bridge_state_path(self.workspace).exists())
         self.assertTrue((bridge.state_dir(self.workspace) / "serve.lock").exists())
         replacement = self.start_bridge()
         new_state = self.wait_ready(replacement)
         self.assertNotEqual(new_state["instanceId"], old_state["instanceId"])
-        self.assertEqual(new_state["pid"], replacement.pid)
+        self.assertNotEqual(new_state["pid"], old_state["pid"])
 
     def test_idle_shutdown_cleans_state_and_allows_restart(self) -> None:
         owner = self.start_bridge(idle_timeout=1)
@@ -318,9 +327,10 @@ class BridgeProcessTest(unittest.TestCase):
         with patch.object(bridge.subprocess, "Popen", side_effect=tracked_spawn):
             first = bridge.ensure_bridge(self.workspace, port, port, idle_timeout=1)
             second = bridge.ensure_bridge(self.workspace, port, port, idle_timeout=1)
+        self.server_states[first["pid"]] = first
         owner = self.processes[-1]
         self.assertEqual(second, first)
-        self.assertEqual(first["pid"], owner.pid)
+        self.assertEqual(first["pid"], bridge.read_state(self.workspace)["pid"])
         self.assert_duplicate_rejected(self.start_bridge())
         self.assertEqual(owner.wait(timeout=5), 0)
         self.assertFalse(bridge.healthy_state(first))
